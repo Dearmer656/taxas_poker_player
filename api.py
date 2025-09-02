@@ -7,7 +7,7 @@ import os
 import pdb
 from tqdm import tqdm
 from prompts.prompt import *
-from utils.tools import pipeline_tools, timeout_input, single_model_prices, batch_model_prices
+from utils.tools import single_model_prices, batch_model_prices
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -202,79 +202,3 @@ class OpenAIClient:
         # pdb.set_trace()
         with open(os.path.join(*save_path.split('/')[:-1], 'id_record.txt'), 'a', encoding='utf-8') as f:
             f.write(record_content)  # 加一个空格分隔
-
-    def batch_api_call(self, template, model_name, iter, n_shots, mode = None, output_saved_path='', prompt_dict=None, extra_info=None, existed_id=None):
-        if existed_id is None:
-            prompt_list = []
-            print(f'now, start processing {mode}')
-            if prompt_dict is None:
-                if iter > 0 and mode == 'generate':
-                    for cur_template in template:
-                        example_prompt = pipeline_tools.get_example_prompt(last_iter=iter-1, n_shots=n_shots, api_model_name=model_name, GPU_seperate_path=self.args.GPU_seperate_path)
-                        prompt_list.append(prompt_build.build_prompt(cur_template, mode, iter, example_prompt))
-                else:
-                    if extra_info is not None:
-                        for cur_template, provided_info in zip(template, extra_info):
-                            prompt_list.append(prompt_build.build_prompt(cur_template, mode, iter, provided_info))
-                    else:
-                        for cur_template in template:
-                            prompt_list.append(prompt_build.build_prompt(cur_template, mode, iter))
-            # if mode == 'eval':
-            #     pass
-            # else:
-            #     x = input(f'length of prompt_list is {len(prompt_list)}, are your sure to continue to generate? if ok please input 1 other wise the program will stop\n')
-            #     if x != '1':
-            #         exit()
-            batch_input_file = self.file_make(prompt_list, template, model_name, iter, mode, n_shots, prompt_dict)
-            batch_response = self.create_batch(batch_input_file)
-            time.sleep(10)    
-            id = batch_response.id
-            self.batch_response_id_record(id, output_saved_path, mode)
-            file_path = f"interval_obser_result/{mode}_batch_state_log.json"
-            if os.path.exists(file_path):
-                os.remove(file_path)
-        else:
-            print('process existed!!! continue to run! \n')
-            id = existed_id
-            self.client.batches.cancel(id)
-        while True:
-            try:
-                cur_generate_state = self.client.batches.retrieve(id)
-            except Exception as e:
-                print(f"Error retrieving batch state: {e}")
-                break
-            cur_generate_state.timestamp = datetime.datetime.now().isoformat()
-            state_dict = cur_generate_state.__dict__.copy()
-            print(f"cur_state: {state_dict['status']} request_counts: {state_dict['request_counts']}" )
-            with open(f"interval_obser_result/{mode}_batch_state_log.json", "a", encoding="utf-8") as f:
-                json.dump(state_dict, f, ensure_ascii=False, default=lambda o: o.__dict__ if hasattr(o, '__dict__') else str(o))
-                f.write("\n")
-            try:
-                if existed_id is not None:
-                    pass
-                else:
-                    if cur_generate_state.request_counts.total not in [len(prompt_list), len(prompt_dict)]:
-                        self.client.batches.cancel(id)
-                        break
-            except:
-                if cur_generate_state.request_counts.total != len(prompt_list):
-                    self.client.batches.cancel(id)
-                    break
-            if cur_generate_state.status in ['failed', 'completed', 'expired', 'cancelled', 'cancelling']:
-                print('generated state: ', cur_generate_state.status)
-                if cur_generate_state.status in ['cancelling', 'cancelled']:
-                    exit()
-                if cur_generate_state.status == 'completed':
-                    generated_text = self.client.files.content(cur_generate_state.output_file_id)
-                    text_content = generated_text.text  # 获取文本内容
-                    with open(output_saved_path, "w", encoding="utf-8") as f:
-                        f.write(text_content)
-                    print(f'output already saved in {output_saved_path} in the process of {mode}')
-                    time.sleep(2)
-                    # time.sleep(300)
-                break
-            time.sleep(60)
-            # x = timeout_input('next step: \n', 60, '1')
-            # x = input("if you want to cancel please input 'cancel'\n\n")
-            # if x == 'cancel':
-            #     self.client.batches.cancel(batch_response.id)
