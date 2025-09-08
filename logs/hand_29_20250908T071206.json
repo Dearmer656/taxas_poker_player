@@ -1,0 +1,264 @@
+{
+  "hand_no": 29,
+  "button": "Sophia",
+  "sb": 50,
+  "bb": 100,
+  "starting_stacks": {
+    "Sophia": 1850,
+    "Ethan": 8150
+  },
+  "hole_cards": {
+    "Sophia": [
+      "10♥",
+      "Q♣"
+    ],
+    "Ethan": [
+      "5♦",
+      "10♠"
+    ]
+  },
+  "board": {
+    "Flop": [],
+    "Turn": [],
+    "River": []
+  },
+  "history": {
+    "Preflop": [
+      {
+        "street": "Preflop",
+        "actor": "Sophia",
+        "action": "SB",
+        "amount": 50,
+        "to_call_before": 0,
+        "invested_before": 0,
+        "invested_after": 50,
+        "pot_after": 150,
+        "note": ""
+      },
+      {
+        "street": "Preflop",
+        "actor": "Ethan",
+        "action": "BB",
+        "amount": 100,
+        "to_call_before": 0,
+        "invested_before": 0,
+        "invested_after": 100,
+        "pot_after": 150,
+        "note": ""
+      },
+      {
+        "street": "Preflop",
+        "actor": "Sophia",
+        "action": "raise",
+        "amount": 400,
+        "to_call_before": 50,
+        "invested_before": 50,
+        "invested_after": 450,
+        "pot_after": 550,
+        "note": ""
+      },
+      {
+        "street": "Preflop",
+        "actor": "Ethan",
+        "action": "fold",
+        "amount": 0,
+        "to_call_before": 350,
+        "invested_before": 100,
+        "invested_after": 100,
+        "pot_after": 550,
+        "note": ""
+      }
+    ],
+    "Flop": [],
+    "Turn": [],
+    "River": []
+  },
+  "strategy_summaries": {
+    "Sophia": "- Be cautious when calling from the small blind with weaker hands; consider folding instead. - Reevaluate calling larger preflop raises in the big blind; ensure prospects justify. - Stack sizes matter; even a gain of 100 chips can influence future decisions. - Assess pot odds carefully before committing additional chips. - Post-flop aggression can be a better strategy than passive play. - Folding to a raise after calling can protect your stack; avoid getting trapped. - Consider position more when entering pots from the blinds. - Review hand ranges for small blind calls; they should be tighter. - Recognize the value of small wins; they can boost confidence and influence strategy adjustments."
+  },
+  "summary_updates": [
+    "Sophia"
+  ],
+  "steps": [
+    {
+      "idx": 0,
+      "street": "preflop",
+      "actor": "Sophia",
+      "observation": {
+        "players": [
+          "Sophia",
+          "Ethan"
+        ],
+        "hero": "Sophia",
+        "hole_cards": [
+          "10♥",
+          "Q♣"
+        ],
+        "street": "preflop",
+        "button": "",
+        "blinds": {
+          "sb": 0,
+          "bb": 0,
+          "ante": 0
+        },
+        "board": [],
+        "pot": 150,
+        "to_act": "Sophia",
+        "to_call": 50,
+        "positions": {},
+        "history_text": [],
+        "legal_actions": [
+          {
+            "type": "fold",
+            "to": null,
+            "min_to": null,
+            "max_to": null
+          },
+          {
+            "type": "call",
+            "to": null,
+            "min_to": null,
+            "max_to": null
+          },
+          {
+            "type": "raise",
+            "to": null,
+            "min_to": null,
+            "max_to": null
+          }
+        ],
+        "strategy_notes": "- Be cautious when calling from the small blind with weaker hands; consider folding instead. - Reevaluate calling larger preflop raises in the big blind; ensure prospects justify. - Stack sizes matter; even a loss of 100 chips can influence future decisions. - Assess pot odds carefully before committing additional chips. - Post-flop aggression can be a better strategy than passive play. - Folding to a raise after calling can protect your stack; avoid getting trapped. - Consider position more when entering pots from the blinds. - Review hand ranges for small blind calls; they should be tighter. - Recognize the value of small wins; they can boost confidence and influence strategy adjustments.",
+        "all_strategy_summaries": {
+          "Sophia": "- Be cautious when calling from the small blind with weaker hands; consider folding instead. - Reevaluate calling larger preflop raises in the big blind; ensure prospects justify. - Stack sizes matter; even a loss of 100 chips can influence future decisions. - Assess pot odds carefully before committing additional chips. - Post-flop aggression can be a better strategy than passive play. - Folding to a raise after calling can protect your stack; avoid getting trapped. - Consider position more when entering pots from the blinds. - Review hand ranges for small blind calls; they should be tighter. - Recognize the value of small wins; they can boost confidence and influence strategy adjustments.",
+          "Ethan": ""
+        },
+        "strategy_history": [
+          "- Be cautious when calling from the small blind with weaker hands; consider folding instead. - Reevaluate calling larger preflop raises in the big blind; ensure prospects justify. - Stack sizes matter; even a gain or loss of 100 chips can influence future decisions. - Assess pot odds carefully before committing additional chips. - Post-flop aggression can be a better strategy than passive play. - Folding to a raise after calling can protect your stack; avoid getting trapped. - Consider position more when entering pots from the blinds. - Review hand ranges for small blind calls; they should be tighter. - Recognize the value of small wins; they can boost confidence and influence strategy adjus",
+          "- Be cautious when calling from the small blind with weaker hands; consider folding instead. - Reevaluate calling larger preflop raises in the big blind; ensure prospects justify. - Stack sizes matter; even a loss of 50 chips can influence future decisions. - Assess pot odds carefully before committing additional chips. - Post-flop aggression can be a better strategy than passive play. - Folding to a raise after calling can protect your stack; avoid getting trapped. - Consider position more when entering pots from the blinds. - Review hand ranges for small blind calls; they should be tighter. - Recognize the value of small wins; they can boost confidence and influence strategy adjustments. -",
+          "- Be cautious when calling from the small blind with weaker hands; consider folding instead. - Reevaluate calling larger preflop raises in the big blind; ensure prospects justify. - Stack sizes matter; even a loss of 100 chips can influence future decisions. - Assess pot odds carefully before committing additional chips. - Post-flop aggression can be a better strategy than passive play. - Folding to a raise after calling can protect your stack; avoid getting trapped. - Consider position more when entering pots from the blinds. - Review hand ranges for small blind calls; they should be tighter. - Recognize the value of small wins; they can boost confidence and influence strategy adjustments."
+        ]
+      },
+      "prompt_hash": "b33531ebc3b184e5",
+      "prompt_text": "Players: ['Sophia', 'Ethan'] | Hero: Sophia\nHole cards: ['10♥', 'Q♣'] | Street: preflop\nButton:  | Blinds: 0/0\nBoard: [] | Pot: 150 | To act: Sophia | To call: 50\nPlayer Strategy Notes (current):\n- Be cautious when calling from the small blind with weaker hands; consider folding instead. - Reevaluate calling larger preflop raises in the big blind; ensure prospects justify. - Stack sizes matter; even a loss of 100 chips can influence future decisions. - Assess pot odds carefully before committing additional chips. - Post-flop aggression can be a better strategy than passive play. - Folding to a raise after calling can protect your stack; avoid getting trapped. - Consider position more when entering pots from the blinds. - Review hand ranges for small blind calls; they should be tighter. - Recognize the value of small wins; they can boost confidence and influence strategy adjustments.\n---\nPlayer Strategy History (older to newer):\n  - - Be cautious when calling from the small blind with weaker hands; consider folding instead. - Reevaluate calling larger preflop raises in the big blind; ensure prospects justify. - Stack sizes matter; even a gain or loss of 100 chips can influence future decisions. - Assess pot odds carefully before committing additional chips. - Post-flop aggression can be a better strategy than passive play. - Folding to a raise after calling can protect your stack; avoid getting trapped. - Consider position more when entering pots from the blinds. - Review hand ranges for small blind calls; they should be tighter. - Recognize the value of small wins; they can boost confidence and influence strategy adjus\n  - - Be cautious when calling from the small blind with weaker hands; consider folding instead. - Reevaluate calling larger preflop raises in the big blind; ensure prospects justify. - Stack sizes matter; even a loss of 50 chips can influence future decisions. - Assess pot odds carefully before committing additional chips. - Post-flop aggression can be a better strategy than passive play. - Folding to a raise after calling can protect your stack; avoid getting trapped. - Consider position more when entering pots from the blinds. - Review hand ranges for small blind calls; they should be tighter. - Recognize the value of small wins; they can boost confidence and influence strategy adjustments. -\n  - - Be cautious when calling from the small blind with weaker hands; consider folding instead. - Reevaluate calling larger preflop raises in the big blind; ensure prospects justify. - Stack sizes matter; even a loss of 100 chips can influence future decisions. - Assess pot odds carefully before committing additional chips. - Post-flop aggression can be a better strategy than passive play. - Folding to a raise after calling can protect your stack; avoid getting trapped. - Consider position more when entering pots from the blinds. - Review hand ranges for small blind calls; they should be tighter. - Recognize the value of small wins; they can boost confidence and influence strategy adjustments.\n---\nHistory:\nLegal actions: fold | call | raise[ ]\nReason explicitly in natural language.\nThen output exactly ONE final line, in lowercase, starting at column 1, as:\ndecision: <action>\n\nRules:\n- Do NOT include any other line that starts with \"decision:\" before the final line.\n- <action> ∈ fold | check | call | raise [total] | all-in\n- Treat ANY first aggression as 'raise' <total> (do not use 'bet').- '<total>' indicates your total contribution in this round (including previous chips).If you had not invested any chips before, 'raise 300' means your first bet of 300.- Use integer chip units (no symbols, no commas).\nImportant strategy note:\nDo not always choose 'check'.\nYou should estimate your winning probability (equity) based on your hole cards and the board.\nIf your winning chance is high, increase aggression via raises.\nIf your winning chance is low, fold more often.\nYou can also consider bluffing: when the opponent's betting pattern suggests they may be weak, you may raise to apply pressure.\n",
+      "model": "gpt-4o-mini",
+      "response_text": "Given the current situation, you hold 10♥ and Q♣ as your hole cards, which are decent enough to play with, especially considering you're the only player to act. The pot is already at 150 chips, and you have to call 50 chips to continue in the hand.\n\nTaking into account your strategy notes, particularly the importance of pot odds and aggression, you should assess your current equity in relation to the pot. With no risk of being out of position and acknowledging that you also could apply pressure, this is a favorable spot to raise.\n\nBy raising instead of merely calling, you can either take down the pot immediately or potentially narrow the field if the opponent is hesitant to continue. Given the dynamics and your current cards, a raise is justifiable here.\n\nThus, I will raise the pot by 300 chips, increasing the total to 450 chips.\n\ndecision: raise 450",
+      "decision": {
+        "action": "raise",
+        "amount": null,
+        "to": 450,
+        "text": "raise 450"
+      },
+      "pot_before": 150,
+      "pot_after": 150,
+      "stacks_before": {
+        "Sophia": 1800,
+        "Ethan": 8050
+      },
+      "stacks_after": {
+        "Sophia": 1800,
+        "Ethan": 8050
+      },
+      "invested_before": {
+        "Sophia": 50,
+        "Ethan": 100
+      },
+      "invested_after": {
+        "Sophia": 50,
+        "Ethan": 100
+      },
+      "timestamp_ms": 1757315519853,
+      "analysis_saved": "Given the current situation, you hold 10♥ and Q♣ as your hole cards, which are decent enough to play with, especially considering you're the only player to act. The pot is already at 150 chips, and you have to call 50 chips to continue in the hand.\n\nTaking into account your strategy notes, particularly the importance of pot odds and aggression, you should assess your current equity in relation to the pot. With no risk of being out of position and acknowledging that you also could apply pressure, this is a favorable spot to raise.\n\nBy raising instead of merely calling, you can either take down the pot immediately or potentially narrow the field if the opponent is hesitant to continue. Given the dynamics and your current cards, a raise is justifiable here.\n\nThus, I will raise the pot by 300 chips, increasing the total to 450 chips.",
+      "analysis_chars": 841,
+      "analysis_sha256": "65185d4227a4cd7ad48264c7a65f36ec4de787fa7b7cd11af47ad9acf100eae5"
+    },
+    {
+      "idx": 1,
+      "street": "preflop",
+      "actor": "Ethan",
+      "observation": {
+        "players": [
+          "Sophia",
+          "Ethan"
+        ],
+        "hero": "Ethan",
+        "hole_cards": [
+          "5♦",
+          "10♠"
+        ],
+        "street": "preflop",
+        "button": "",
+        "blinds": {
+          "sb": 0,
+          "bb": 0,
+          "ante": 0
+        },
+        "board": [],
+        "pot": 550,
+        "to_act": "Ethan",
+        "to_call": 350,
+        "positions": {},
+        "history_text": [
+          "[PREFLOP] Sophia raise 450"
+        ],
+        "legal_actions": [
+          {
+            "type": "fold",
+            "to": null,
+            "min_to": null,
+            "max_to": null
+          },
+          {
+            "type": "call",
+            "to": null,
+            "min_to": null,
+            "max_to": null
+          },
+          {
+            "type": "raise",
+            "to": null,
+            "min_to": null,
+            "max_to": null
+          }
+        ],
+        "strategy_notes": "",
+        "all_strategy_summaries": {
+          "Sophia": "- Be cautious when calling from the small blind with weaker hands; consider folding instead. - Reevaluate calling larger preflop raises in the big blind; ensure prospects justify. - Stack sizes matter; even a loss of 100 chips can influence future decisions. - Assess pot odds carefully before committing additional chips. - Post-flop aggression can be a better strategy than passive play. - Folding to a raise after calling can protect your stack; avoid getting trapped. - Consider position more when entering pots from the blinds. - Review hand ranges for small blind calls; they should be tighter. - Recognize the value of small wins; they can boost confidence and influence strategy adjustments.",
+          "Ethan": ""
+        },
+        "strategy_history": null
+      },
+      "prompt_hash": "a1a1db3dae4aab71",
+      "prompt_text": "Players: ['Sophia', 'Ethan'] | Hero: Ethan\nHole cards: ['5♦', '10♠'] | Street: preflop\nButton:  | Blinds: 0/0\nBoard: [] | Pot: 550 | To act: Ethan | To call: 350\nHistory:\n  [PREFLOP] Sophia raise 450\nLegal actions: fold | call | raise[ ]\nReason explicitly in natural language.\nThen output exactly ONE final line, in lowercase, starting at column 1, as:\ndecision: <action>\n\nRules:\n- Do NOT include any other line that starts with \"decision:\" before the final line.\n- <action> ∈ fold | check | call | raise [total] | all-in\n- Treat ANY first aggression as 'raise' <total> (do not use 'bet').- '<total>' indicates your total contribution in this round (including previous chips).If you had not invested any chips before, 'raise 300' means your first bet of 300.- Use integer chip units (no symbols, no commas).\nImportant strategy note:\nDo not always choose 'check'.\nYou should estimate your winning probability (equity) based on your hole cards and the board.\nIf your winning chance is high, increase aggression via raises.\nIf your winning chance is low, fold more often.\nYou can also consider bluffing: when the opponent's betting pattern suggests they may be weak, you may raise to apply pressure.\n",
+      "model": "gpt-4o-mini",
+      "response_text": "In this preflop situation, Sophia has raised to 450, and Ethan must decide whether to call the additional 350 to see the flop or fold. Ethan holds 5♦ and 10♠, which are not strong cards but can potentially form straights or pairs. Given the current pot of 550 and the aggressive action from Sophia, it's essential to consider if she might have a stronger hand, possibly a high pair or two high cards. \n\nWith the pot being significant and Ethan having invested 100 chips (to call the 450), he finds himself in a position where he has to weigh his options. Calling would only increase his investment, and with a mediocre hand, it may not be worth it unless there's a chance he can hit something on the flop. Raising here might also put pressure on Sophia, but as long as he doesn't have a strong hand to back it up and based on the current betting dynamics, it would be wiser to fold.\n\nGiven the circumstances and the strength of the hands often present in this situation, the best move for Ethan is to fold his hand and avoid further investment.\n\ndecision: fold",
+      "decision": {
+        "action": "fold",
+        "amount": null,
+        "to": null,
+        "text": "fold"
+      },
+      "pot_before": 550,
+      "pot_after": 550,
+      "stacks_before": {
+        "Sophia": 1400,
+        "Ethan": 8050
+      },
+      "stacks_after": {
+        "Sophia": 1400,
+        "Ethan": 8050
+      },
+      "invested_before": {
+        "Sophia": 450,
+        "Ethan": 100
+      },
+      "invested_after": {
+        "Sophia": 450,
+        "Ethan": 100
+      },
+      "timestamp_ms": 1757315524066,
+      "analysis_saved": "In this preflop situation, Sophia has raised to 450, and Ethan must decide whether to call the additional 350 to see the flop or fold. Ethan holds 5♦ and 10♠, which are not strong cards but can potentially form straights or pairs. Given the current pot of 550 and the aggressive action from Sophia, it's essential to consider if she might have a stronger hand, possibly a high pair or two high cards. \n\nWith the pot being significant and Ethan having invested 100 chips (to call the 450), he finds himself in a position where he has to weigh his options. Calling would only increase his investment, and with a mediocre hand, it may not be worth it unless there's a chance he can hit something on the flop. Raising here might also put pressure on Sophia, but as long as he doesn't have a strong hand to back it up and based on the current betting dynamics, it would be wiser to fold.\n\nGiven the circumstances and the strength of the hands often present in this situation, the best move for Ethan is to fold his hand and avoid further investment.",
+      "analysis_chars": 1044,
+      "analysis_sha256": "4f8c090f1df6c64faa0f051afc105dae7942ae6832519cb9021382236fea9c3a"
+    }
+  ]
+}

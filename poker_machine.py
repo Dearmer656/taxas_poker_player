@@ -12,7 +12,7 @@ from api import OpenAIClient
 import argparse
 import re, unicodedata, copy, hashlib
 from models import HandLog, Street, ActionEntry, ParsedDecision
-from recorder import record_step, make_observation
+from recorder import record_step, make_observation, cost_record
 
 # =========================
 # 配置（可自行修改）
@@ -68,6 +68,10 @@ class Player:
         # 标记是否全下
         self.all_in = False
         self.has_folded = False
+        # 策略总结（跨手持久）与版本历史
+        self.strategy_summary: str = ""
+        self.strategy_versions: List[Dict[str, str]] = []  # {hand_no, text}
+        self.enable_summary: bool = False
 
     def reset_for_new_hand(self):
         self.hole = []
@@ -280,12 +284,6 @@ def parse_action(raw: str) -> Tuple[str, Optional[int]]:
         return ("call", None)
     if s == "all-in" or s == "allin":
         return ("all-in", None)
-    if s.startswith("bet "):
-        try:
-            x = int(s.split()[1])
-            return ("bet", x)
-        except:
-            pass
     if s.startswith("raise "):
         try:
             x = int(s.split()[1])
@@ -303,7 +301,6 @@ _DECISION_LINE_RE = re.compile(
             (?P<check>check) |
             (?P<call>call) |
             all[-\s]?in(?:\s+for\s+(?P<allin_amt>\d+))? |
-            bet\s+(?P<bet>\d+) |
             raise\s+(?:to\s+)?(?P<raise_to>\d+)
         )
     )
@@ -320,9 +317,6 @@ def parse_last_decision_line(response_text: str) -> ParsedDecision:
     if m.group("fold"):  return ParsedDecision("fold", text=raw)
     if m.group("check"): return ParsedDecision("check", text=raw)
     if m.group("call"):  return ParsedDecision("call", text=raw)
-    if m.group("bet") is not None:
-        amt = int(m.group("bet"))
-        return ParsedDecision("bet", amount=amt, text=raw)
     if m.group("raise_to") is not None:
         to  = int(m.group("raise_to"))
         return ParsedDecision("raise", to=to, text=raw)
@@ -337,6 +331,8 @@ def prompt_action(player, state, street_name: str):
     # 2) 调模型（保留完整 response_text 以便“思考过程”存档）
     # pdb.set_trace()
     resp_text, _, cost = player.agent(model_name='gpt-4o-mini', prompt=prompt_text)  # 你的返回是 (text, _, cost)
+    if cost:
+        cost_record(cost)
 
     # 3) 解析最后一条 decision 行
     decision = parse_last_decision_line(resp_text)
@@ -354,8 +350,6 @@ def prompt_action(player, state, street_name: str):
     )
 
     # 5) 返回给你的原有引擎（如果你不在 record_step 里 apply，就在这里 apply 再返回）
-    if decision.action in ("bet",):
-        return "bet", decision.amount
     if decision.action in ("raise",):
         return "raise", decision.to
     return decision.action, None
@@ -469,36 +463,13 @@ def apply_action(player_idx: int, action: str, amt: Optional[int],
             ))
         return "continue"
 
-    # ---- BET ----（仅翻后且当前无人下注）
-    if action == "bet":
-        if street == "Preflop" or state.current_bet > 0:
-            print("当前已有人下注（或翻前有大盲），请用 raise。")
-            return "invalid"
-        if amt is None or amt <= 0 or amt > p.stack:
-            print("bet 金额非法。")
-            return "invalid"
-        p.stack -= amt
-        state.add_to_pot(amt)
-        state.invested[p.name] += amt
-        state.current_bet = state.invested[p.name]
-        state.last_raiser = player_idx
-        recompute_to_calls(state)
-        print(f"{p.name} 下注 {amt}。底池={state.pot}。")
-        if state.hand_log:
-            amount_delta = state.invested[p.name] - prev_invested
-            state.hand_log.add_action(ActionEntry(
-                street=street, actor=p.name, action="bet", amount=amount_delta,
-                to_call_before=prev_to_call, invested_before=prev_invested,
-                invested_after=state.invested[p.name], pot_after=state.pot
-            ))        
-        return "continue"
-
-    # ---- RAISE ----（把“本轮你的总投入”提高到 amt）
+    # ---- RAISE ----（首次进攻也用 raise，表示把“本轮总投入”提高到 amt）
     if action == "raise":
-        if state.current_bet == 0:
-            print("当前无人下注，不能 raise，请使用 bet。")
+        if amt is None or amt <= 0:
+            print("raise 目标无效。")
             return "invalid"
-        if amt is None or amt <= state.current_bet:
+        # 首次进攻：current_bet==0 时直接允许 raise to amt
+        if state.current_bet > 0 and amt <= state.current_bet:
             print(f"raise 目标必须大于当前注额 {state.current_bet}。")
             return "invalid"
         target = amt
@@ -516,14 +487,15 @@ def apply_action(player_idx: int, action: str, amt: Optional[int],
         state.current_bet = target
         state.last_raiser = player_idx
         recompute_to_calls(state)
-        print(f"{p.name} 加注到 {state.current_bet}。底池={state.pot}。")
+        verb = "加注" if state.current_bet > 0 else "首次加注"
+        print(f"{p.name} {verb}到 {state.current_bet}。底池={state.pot}。")
         if state.hand_log:
             amount_delta = state.invested[p.name] - prev_invested
             state.hand_log.add_action(ActionEntry(
                 street=street, actor=p.name, action="raise", amount=amount_delta,
                 to_call_before=prev_to_call, invested_before=prev_invested,
                 invested_after=state.invested[p.name], pot_after=state.pot
-            ))        
+            ))
         return "continue"
 
     return "invalid"
@@ -619,6 +591,19 @@ def showdown_multi(players: List[Player], board: List[Card], pot: int):
 import os, datetime
 def play_one_hand_multi(players: List[Player], button_index: int, hand_no: int = 1, save_dir: str = "logs") -> int:
     """进行一手牌。返回新的按钮 index (下一手使用)。未实现 side pot。"""
+    def _persist():
+        try:
+            os.makedirs(save_dir, exist_ok=True)
+            ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+            path = os.path.join(save_dir, f"hand_{hand_no}_{ts}.json")
+            hand_log.save_json(path)
+        except Exception as e:
+            print(f"保存手牌日志失败: {e}")
+    def _summaries():
+        # 为启用的玩家生成/更新总结
+        for pl in players:
+            if getattr(pl, "enable_summary", False):
+                generate_player_summary(hand_log, pl)
     # 重置
     for p in players:
         p.reset_for_new_hand()
@@ -651,8 +636,10 @@ def play_one_hand_multi(players: List[Player], button_index: int, hand_no: int =
     else:
         first_idx = (button_index + 3) % len(players) if len(players) >=3 else (button_index+1)%len(players)  # UTG
     run_betting_round(state, "Preflop", first_idx)
-    # 若已有人赢下整手（fold 清光）则直接结束
+    # 若已有人赢下整手（fold 清光）则直接结束（以前这里没有保存日志，导致早期结束的牌未落盘）
     if state.pot == 0 or sum(0 if p.has_folded else 1 for p in players) <=1:
+        _summaries()
+        _persist()
         return (button_index + 1) % len(players)
 
     # 翻牌
@@ -661,18 +648,24 @@ def play_one_hand_multi(players: List[Player], button_index: int, hand_no: int =
     first_flop = (button_index + 1) % len(players) if len(players)>2 else (state.button_index ^ 1)
     run_betting_round(state, "Flop", first_flop)
     if state.pot == 0 or sum(0 if p.has_folded else 1 for p in players) <=1:
+        _summaries()
+        _persist()
         return (button_index + 1) % len(players)
 
     # 转牌
     deck.burn(); board += deck.deal(1); hand_log.set_board("Turn", board); print(f"\n转牌 TURN: {board}")
     run_betting_round(state, "Turn", first_flop)
     if state.pot == 0 or sum(0 if p.has_folded else 1 for p in players) <=1:
+        _summaries()
+        _persist()
         return (button_index + 1) % len(players)
 
     # 河牌
     deck.burn(); board += deck.deal(1); hand_log.set_board("River", board); print(f"\n河牌 RIVER: {board}")
     run_betting_round(state, "River", first_flop)
     if state.pot == 0 or sum(0 if p.has_folded else 1 for p in players) <=1:
+        _summaries()
+        _persist()
         return (button_index + 1) % len(players)
 
     # 摊牌
@@ -680,14 +673,71 @@ def play_one_hand_multi(players: List[Player], button_index: int, hand_no: int =
     showdown_multi(remaining, board, state.pot)
     state.pot = 0
     # 保存日志
-    try:
-        os.makedirs(save_dir, exist_ok=True)
-        ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S")
-        path = os.path.join(save_dir, f"hand_{hand_no}_{ts}.json")
-        hand_log.save_json(path)
-    except Exception as e:
-        print(f"保存手牌日志失败: {e}")
+    _summaries()
+    _persist()
     return (button_index + 1) % len(players)
+
+# =========================
+# 手牌总结生成（英文输出）
+# =========================
+SUMMARY_MAX_CHARS = 700
+
+def build_summary_prompt(old_summary: str, hand_log: HandLog, player: Player) -> str:
+    # 抽取本手该玩家参与的主要信息：投入、行动、结果（是否获胜）
+    actions = []
+    for street in ("Preflop","Flop","Turn","River"):
+        for a in hand_log.history.get(street, []):
+            if a.actor == player.name:
+                actions.append(f"{street}:{a.action}{'' if a.amount==0 else ' '+str(a.amount)} (pot={a.pot_after})")
+    result = "unknown"
+    # 粗略判定是否赢（若手牌结束后 stack 比 starting 高且有参与）
+    start_stack = hand_log.starting_stacks.get(player.name, player.stack)
+    end_stack = player.stack
+    if end_stack > start_stack:
+        result = "won chips"
+    elif end_stack < start_stack:
+        result = "lost chips"
+    else:
+        result = "no net change"
+    old_block = old_summary.strip() if old_summary else "(none)"
+    prompt = (
+        "You are updating a concise personal poker strategy note after a single hand.\n"
+        "Keep it under " + str(SUMMARY_MAX_CHARS) + " characters.\n"
+        "You may ADD new insights, MODIFY existing ones, or REMOVE outdated ones.\n"
+        "If no meaningful adjustment is needed, return the previous summary unchanged.\n"
+        "Write in English, bullet-like short sentences (no numbering needed). Avoid repeating obvious rules.\n"
+        "Never include lines starting with 'decision:'.\n"
+        "--- Previous Summary ---\n" + old_block + "\n"
+        "--- This Hand Key Facts ---\n"
+        f"Result: {result}; Stack change: {end_stack-start_stack}; Actions: {' | '.join(actions) if actions else 'fold preflop or no actions logged'}\n"
+        "--- Output Updated Summary Below ---"
+    )
+    return prompt
+
+def generate_player_summary(hand_log: HandLog, player: Player):
+    old = player.strategy_summary or ""
+    prompt = build_summary_prompt(old, hand_log, player)
+    try:
+        resp, _, _ = player.agent(model_name='gpt-4o-mini', prompt=prompt)
+        text = (resp or "").strip()
+        # 清洗：去掉围栏与 decision 行、裁剪
+        text = re.sub(r"```.*?```", "", text, flags=re.S)
+        lines = [ln for ln in text.splitlines() if not ln.lower().startswith("decision:")]
+        cleaned = " ".join(l.strip() for l in lines if l.strip())
+        if len(cleaned) > SUMMARY_MAX_CHARS:
+            cleaned = cleaned[:SUMMARY_MAX_CHARS].rstrip()
+        if cleaned and cleaned != old:
+            player.strategy_summary = cleaned
+            player.strategy_versions.append({"hand_no": str(hand_log.hand_no), "text": cleaned})
+            hand_log.strategy_summaries[player.name] = cleaned
+            hand_log.summary_updates.append(player.name)
+        else:
+            # 未变化也记录当前（便于下游）
+            hand_log.strategy_summaries[player.name] = old
+    except Exception as e:
+        hand_log.strategy_summaries[player.name] = old
+        hand_log.summary_updates.append(f"error:{player.name}")
+
 def parse_option():
     parser = argparse.ArgumentParser('Swin Transformer training and evaluation script', add_help=False)
     ################ args ################
@@ -713,6 +763,22 @@ def main():
     # 随机抽取不重复名字
     chosen_names = random.sample(NAME_POOL, n)
     players: List[Player] = [Player(name, STARTING_STACK, api_args) for name in chosen_names]
+
+    # 启用总结的前 K 位玩家
+    while True:
+        try:
+            k = int(input("请输入需要开启总结功能的前K位玩家数量 (0..n)：").strip())
+        except ValueError:
+            print("请输入数字。")
+            continue
+        if 0 <= k <= n:
+            break
+        print("范围错误。")
+    for idx, p in enumerate(players):
+        if idx < k:
+            p.enable_summary = True
+    if k>0:
+        print(f"已为前{k}位玩家开启总结功能: {', '.join(p.name for p in players[:k])}")
     print("座位 (顺时针)：", " -> ".join(p.name for p in players))
 
     button_index = 0  # 初始按钮设为列表第 0 个
@@ -727,9 +793,11 @@ def main():
         print("筹码:", ", ".join(f"{p.name}={p.stack}" for p in players))
         button_index = play_one_hand_multi(players, button_index, hand_no, save_dir="logs")
         print("\n手牌结束后筹码:", ", ".join(f"{p.name}={p.stack}" for p in players))
-        cont = input("回车继续；输入 q 退出：").strip().lower()
-        if cont == 'q':
-            break
+        # cont = input("回车继续；输入 q 退出：").strip().lower()
+        # if cont == 'q':
+        #     break
         hand_no += 1
+        if hand_no == 50:
+            break
 if __name__ == "__main__":
     main()

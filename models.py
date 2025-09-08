@@ -10,7 +10,7 @@ class Street(str, Enum):
     RIVER   = "river"
 @dataclass
 class LegalAction:
-    type: str                      # 'fold'|'check'|'call'|'bet'|'raise'|'all-in'
+    type: str                      # 'fold'|'check'|'call'|'raise'|'all-in'  (统一，不再使用 bet)
     to: Optional[int] = None       # call 的目标数额
     min_to: Optional[int] = None   # bet/raise 的下界（to）
     max_to: Optional[int] = None   # bet/raise 的上界（to）
@@ -29,6 +29,9 @@ class Observation:  # 直接存你喂给 LLM 的“状态快照”（便于复�
     positions: Dict[str, str]      # 可选：BTN/SB/BB/UTG...
     history_text: List[str]        # 你现在生成的 History 行（可复现 prompt）
     legal_actions: List[LegalAction]
+    strategy_notes: Optional[str] = ""   # 该玩家当前策略总结
+    all_strategy_summaries: Optional[Dict[str, str]] = None  # 所有玩家最新总结（仅内部使用）
+    strategy_history: Optional[List[str]] = None  # 该玩家历史版本文本（旧->新 或 截断）
 
     def to_prompt_text(self) -> str:
         # 你现有 build_llm_prompt_text 的更“稳”版本（裁剪为必需字段）
@@ -39,11 +42,28 @@ class Observation:  # 直接存你喂给 LLM 的“状态快照”（便于复�
         lines.append(f"Board: {self.board} | Pot: {self.pot} | To act: {self.to_act} | To call: {self.to_call}")
         if self.positions:
             lines.append(f"Positions: {self.positions}")
+        if self.strategy_notes:
+            lines.append("Player Strategy Notes (current):")
+            lines.append(self.strategy_notes.strip())
+            lines.append("---")
+        if self.strategy_history:
+            lines.append("Player Strategy History (older to newer):")
+            for h in self.strategy_history:
+                lines.append(f"  - {h}")
+            lines.append("---")
+    # 全部玩家策略总结暂时关闭（保留数据但不展示）
+    # if self.all_strategy_summaries:
+    #     lines.append("All Players Strategy Summaries (private internal context):")
+    #     for n, s in self.all_strategy_summaries.items():
+    #         if not s:
+    #             continue
+    #         lines.append(f"  {n}: {s[:300]}")
+    #     lines.append("---")
         lines.append("History:")
         for h in self.history_text: lines.append(f"  {h}")
         # 动作域（强约束提示）
         def _fmt(a: LegalAction):
-            if a.type in ("bet","raise"):
+            if a.type == "raise":  # 首次进攻也用 raise 表达
                 lo = f"min:{a.min_to}" if a.min_to is not None else ""
                 hi = f"max:{a.max_to}" if a.max_to is not None else ""
                 rng = f" [{lo} {hi}]".strip()
@@ -60,10 +80,17 @@ class Observation:  # 直接存你喂给 LLM 的“状态快照”（便于复�
             "decision: <action>\n\n"
             "Rules:\n"
             "- Do NOT include any other line that starts with \"decision:\" before the final line.\n"
-            "- Do NOT wrap the final line in a code block.\n"
-            "- Output nothing after the final line.\n"
-            "- <action> ∈ fold | check | call | bet [amount] | raise to [total] | all-in\n"
+            "- <action> ∈ fold | check | call | raise [total] | all-in\n"
+            "- Treat ANY first aggression as 'raise' <total> (do not use 'bet')."
+            "- '<total>' indicates your total contribution in this round (including previous chips)."
+            "If you had not invested any chips before, 'raise 300' means your first bet of 300."
             "- Use integer chip units (no symbols, no commas).\n"
+            "Important strategy note:\n"
+            "Do not always choose 'check'.\n"
+            "You should estimate your winning probability (equity) based on your hole cards and the board.\n"
+            "If your winning chance is high, increase aggression via raises.\n"
+            "If your winning chance is low, fold more often.\n"
+            "You can also consider bluffing: when the opponent's betting pattern suggests they may be weak, you may raise to apply pressure.\n"
         )
         return "\n".join(lines)
 @dataclass
@@ -96,6 +123,8 @@ class HandLog:
     hole_cards: Dict[str, List[str]]
     board: Dict[str, List[str]]
     history: Dict[str, List[ActionEntry]]
+    strategy_summaries: Dict[str, str] = field(default_factory=dict)  # 每手结束后的各玩家总结（启用者）
+    summary_updates: List[str] = field(default_factory=list)          # 本手实际发生变化的玩家名列表
     steps: List[Any] = field(default_factory=list)  # 保存 StepTrace（避免循环依赖，使用 Any）
 
     def __init__(self, hand_no: int, button_name: str, sb: int, bb: int, p_btn, p_bb, players: Optional[List[Any]] = None):
@@ -112,6 +141,8 @@ class HandLog:
         self.board = {s: [] for s in STREETS if s != "Preflop"}
         self.history = {s: [] for s in STREETS}
         self.steps = []
+        self.strategy_summaries = {}
+        self.summary_updates = []
 
     def set_hole_cards(self, p_name: str, cards) -> None:
         self.hole_cards[p_name] = [repr(c) for c in cards]
@@ -148,6 +179,8 @@ class HandLog:
             "hole_cards": self.hole_cards,
             "board": self.board,
             "history": {s: [asdict(h) for h in self.history[s]] for s in STREETS},
+            "strategy_summaries": self.strategy_summaries,
+            "summary_updates": self.summary_updates,
             "steps": [asdict(s) for s in self.steps],
         }
 
@@ -169,6 +202,7 @@ class StepTrace:
     actor: str
     observation: Observation
     prompt_hash: str
+    prompt_text: Optional[str]
     model: str
     response_text: str
     decision: ParsedDecision
@@ -186,3 +220,4 @@ class StepTrace:
 ## 旧的游离函数已内联到 HandLog；保留占位避免外部误引用
 def build_llm_prompt_text(*args, **kwargs):
     raise NotImplementedError("build_llm_prompt_text 已弃用，使用 Observation.to_prompt_text()")
+

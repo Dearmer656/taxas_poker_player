@@ -1,0 +1,355 @@
+{
+  "hand_no": 1,
+  "button": "Sophia",
+  "sb": 50,
+  "bb": 100,
+  "starting_stacks": {
+    "Sophia": 5000,
+    "Ethan": 5000
+  },
+  "hole_cards": {
+    "Sophia": [
+      "7♥",
+      "10♣"
+    ],
+    "Ethan": [
+      "6♥",
+      "K♠"
+    ]
+  },
+  "board": {
+    "Flop": [],
+    "Turn": [],
+    "River": []
+  },
+  "history": {
+    "Preflop": [
+      {
+        "street": "Preflop",
+        "actor": "Sophia",
+        "action": "SB",
+        "amount": 50,
+        "to_call_before": 0,
+        "invested_before": 0,
+        "invested_after": 50,
+        "pot_after": 150,
+        "note": ""
+      },
+      {
+        "street": "Preflop",
+        "actor": "Ethan",
+        "action": "BB",
+        "amount": 100,
+        "to_call_before": 0,
+        "invested_before": 0,
+        "invested_after": 100,
+        "pot_after": 150,
+        "note": ""
+      },
+      {
+        "street": "Preflop",
+        "actor": "Sophia",
+        "action": "call",
+        "amount": 50,
+        "to_call_before": 50,
+        "invested_before": 50,
+        "invested_after": 100,
+        "pot_after": 200,
+        "note": "preflop SB completes to BB"
+      },
+      {
+        "street": "Preflop",
+        "actor": "Ethan",
+        "action": "raise",
+        "amount": 200,
+        "to_call_before": 0,
+        "invested_before": 100,
+        "invested_after": 300,
+        "pot_after": 400,
+        "note": ""
+      },
+      {
+        "street": "Preflop",
+        "actor": "Sophia",
+        "action": "fold",
+        "amount": 0,
+        "to_call_before": 200,
+        "invested_before": 100,
+        "invested_after": 100,
+        "pot_after": 400,
+        "note": ""
+      }
+    ],
+    "Flop": [],
+    "Turn": [],
+    "River": []
+  },
+  "strategy_summaries": {
+    "Sophia": "- Be cautious when calling from the small blind with weaker hands. - Assess pot odds carefully before committing additional chips. - Post-flop aggression can be a better strategy than passive play. - Folding to a raise after calling can protect your stack; avoid getting trapped. - Consider position more when entering pots from the blinds. - Review hand ranges for small blind calls; they should be tighter. - Acknowledge the impact of stack size on decisions; losing 100 chips affects future play."
+  },
+  "summary_updates": [
+    "Sophia"
+  ],
+  "steps": [
+    {
+      "idx": 0,
+      "street": "preflop",
+      "actor": "Sophia",
+      "observation": {
+        "players": [
+          "Sophia",
+          "Ethan"
+        ],
+        "hero": "Sophia",
+        "hole_cards": [
+          "7♥",
+          "10♣"
+        ],
+        "street": "preflop",
+        "button": "",
+        "blinds": {
+          "sb": 0,
+          "bb": 0,
+          "ante": 0
+        },
+        "board": [],
+        "pot": 150,
+        "to_act": "Sophia",
+        "to_call": 50,
+        "positions": {},
+        "history_text": [],
+        "legal_actions": [
+          {
+            "type": "fold",
+            "to": null,
+            "min_to": null,
+            "max_to": null
+          },
+          {
+            "type": "call",
+            "to": null,
+            "min_to": null,
+            "max_to": null
+          },
+          {
+            "type": "raise",
+            "to": null,
+            "min_to": null,
+            "max_to": null
+          }
+        ],
+        "strategy_notes": "",
+        "all_strategy_summaries": {
+          "Sophia": "",
+          "Ethan": ""
+        },
+        "strategy_history": null
+      },
+      "prompt_hash": "3dfe12935af509f6",
+      "prompt_text": "Players: ['Sophia', 'Ethan'] | Hero: Sophia\nHole cards: ['7♥', '10♣'] | Street: preflop\nButton:  | Blinds: 0/0\nBoard: [] | Pot: 150 | To act: Sophia | To call: 50\nHistory:\nLegal actions: fold | call | raise[ ]\nReason explicitly in natural language.\nThen output exactly ONE final line, in lowercase, starting at column 1, as:\ndecision: <action>\n\nRules:\n- Do NOT include any other line that starts with \"decision:\" before the final line.\n- <action> ∈ fold | check | call | raise [total] | all-in\n- Treat ANY first aggression as 'raise' <total> (do not use 'bet').- '<total>' indicates your total contribution in this round (including previous chips).If you had not invested any chips before, 'raise 300' means your first bet of 300.- Use integer chip units (no symbols, no commas).\nImportant strategy note:\nDo not always choose 'check'.\nYou should estimate your winning probability (equity) based on your hole cards and the board.\nIf your winning chance is high, increase aggression via raises.\nIf your winning chance is low, fold more often.\nYou can also consider bluffing: when the opponent's betting pattern suggests they may be weak, you may raise to apply pressure.\n",
+      "model": "gpt-4o-mini",
+      "response_text": "In this preflop situation, Sophia holds a 7♥ and 10♣. These are connected cards that could potentially form a straight if the right community cards hit the board. However, they are not premium hands, and without any high card strength, Sophia's hand is relatively weak compared to strong starting hands like pairs or high cards.\n\nThe pot is currently at 150, and Sophia is facing a call of 50. She has the option to fold, call, or raise, but since there is no significant indication of weakness from Ethan (who is yet to act), raising may not be optimal without more strength.\n\nGiven that she has already invested in the pot and looking to see a flop, calling could allow her to explore her hand potential at a low cost. Raising could be a strategic bluff, but it's more prudent here to conserve chips and see the community cards.\n\nConsidering these factors, Sophia should call the 50 to keep her options open and see the next cards.\n\ndecision: call",
+      "decision": {
+        "action": "call",
+        "amount": null,
+        "to": null,
+        "text": "call"
+      },
+      "pot_before": 150,
+      "pot_after": 150,
+      "stacks_before": {
+        "Sophia": 4950,
+        "Ethan": 4900
+      },
+      "stacks_after": {
+        "Sophia": 4950,
+        "Ethan": 4900
+      },
+      "invested_before": {
+        "Sophia": 50,
+        "Ethan": 100
+      },
+      "invested_after": {
+        "Sophia": 50,
+        "Ethan": 100
+      },
+      "timestamp_ms": 1757315232149,
+      "analysis_saved": "In this preflop situation, Sophia holds a 7♥ and 10♣. These are connected cards that could potentially form a straight if the right community cards hit the board. However, they are not premium hands, and without any high card strength, Sophia's hand is relatively weak compared to strong starting hands like pairs or high cards.\n\nThe pot is currently at 150, and Sophia is facing a call of 50. She has the option to fold, call, or raise, but since there is no significant indication of weakness from Ethan (who is yet to act), raising may not be optimal without more strength.\n\nGiven that she has already invested in the pot and looking to see a flop, calling could allow her to explore her hand potential at a low cost. Raising could be a strategic bluff, but it's more prudent here to conserve chips and see the community cards.\n\nConsidering these factors, Sophia should call the 50 to keep her options open and see the next cards.",
+      "analysis_chars": 933,
+      "analysis_sha256": "a3642682e80b6252c83cbbf5712695de5bca610035da7e671366d132dc4d2d5f"
+    },
+    {
+      "idx": 1,
+      "street": "preflop",
+      "actor": "Ethan",
+      "observation": {
+        "players": [
+          "Sophia",
+          "Ethan"
+        ],
+        "hero": "Ethan",
+        "hole_cards": [
+          "6♥",
+          "K♠"
+        ],
+        "street": "preflop",
+        "button": "",
+        "blinds": {
+          "sb": 0,
+          "bb": 0,
+          "ante": 0
+        },
+        "board": [],
+        "pot": 200,
+        "to_act": "Ethan",
+        "to_call": 0,
+        "positions": {},
+        "history_text": [
+          "[PREFLOP] Sophia call"
+        ],
+        "legal_actions": [
+          {
+            "type": "check",
+            "to": null,
+            "min_to": null,
+            "max_to": null
+          },
+          {
+            "type": "bet",
+            "to": null,
+            "min_to": null,
+            "max_to": null
+          }
+        ],
+        "strategy_notes": "",
+        "all_strategy_summaries": {
+          "Sophia": "",
+          "Ethan": ""
+        },
+        "strategy_history": null
+      },
+      "prompt_hash": "d00d1d110cc41f62",
+      "prompt_text": "Players: ['Sophia', 'Ethan'] | Hero: Ethan\nHole cards: ['6♥', 'K♠'] | Street: preflop\nButton:  | Blinds: 0/0\nBoard: [] | Pot: 200 | To act: Ethan | To call: 0\nHistory:\n  [PREFLOP] Sophia call\nLegal actions: check | bet\nReason explicitly in natural language.\nThen output exactly ONE final line, in lowercase, starting at column 1, as:\ndecision: <action>\n\nRules:\n- Do NOT include any other line that starts with \"decision:\" before the final line.\n- <action> ∈ fold | check | call | raise [total] | all-in\n- Treat ANY first aggression as 'raise' <total> (do not use 'bet').- '<total>' indicates your total contribution in this round (including previous chips).If you had not invested any chips before, 'raise 300' means your first bet of 300.- Use integer chip units (no symbols, no commas).\nImportant strategy note:\nDo not always choose 'check'.\nYou should estimate your winning probability (equity) based on your hole cards and the board.\nIf your winning chance is high, increase aggression via raises.\nIf your winning chance is low, fold more often.\nYou can also consider bluffing: when the opponent's betting pattern suggests they may be weak, you may raise to apply pressure.\n",
+      "model": "gpt-4o-mini",
+      "response_text": "Ethan has hole cards of 6♥ and K♠, which gives him a decent starting hand with potential for both high cards and a possible flush if the right suited cards come in on the board. Currently, Sophia has called the blind, which indicates she might have a playable hand as well but hasn't shown strength yet. The pot is currently 200, and Ethan can take advantage of the situation by making a strong play to assert dominance preflop, particularly since he's already the hero.\n\nGiven that it's preflop, there are no cards on the board, and Ethan's hand has reasonable potential, I would suggest he raises to increase the pot and possibly force weaker hands to fold. A raise of 300 would increase the pressure on Sophia and would still represent a reasonable amount given the current pot size. This also helps Ethan build a larger pot should he go on to win.\n\ndecision: raise 300",
+      "decision": {
+        "action": "raise",
+        "amount": null,
+        "to": 300,
+        "text": "raise 300"
+      },
+      "pot_before": 200,
+      "pot_after": 200,
+      "stacks_before": {
+        "Sophia": 4900,
+        "Ethan": 4900
+      },
+      "stacks_after": {
+        "Sophia": 4900,
+        "Ethan": 4900
+      },
+      "invested_before": {
+        "Sophia": 100,
+        "Ethan": 100
+      },
+      "invested_after": {
+        "Sophia": 100,
+        "Ethan": 100
+      },
+      "timestamp_ms": 1757315235185,
+      "analysis_saved": "Ethan has hole cards of 6♥ and K♠, which gives him a decent starting hand with potential for both high cards and a possible flush if the right suited cards come in on the board. Currently, Sophia has called the blind, which indicates she might have a playable hand as well but hasn't shown strength yet. The pot is currently 200, and Ethan can take advantage of the situation by making a strong play to assert dominance preflop, particularly since he's already the hero.\n\nGiven that it's preflop, there are no cards on the board, and Ethan's hand has reasonable potential, I would suggest he raises to increase the pot and possibly force weaker hands to fold. A raise of 300 would increase the pressure on Sophia and would still represent a reasonable amount given the current pot size. This also helps Ethan build a larger pot should he go on to win.",
+      "analysis_chars": 851,
+      "analysis_sha256": "78198121a55ba010cdb261d1406be084893d2c0398f85b2fcb8f7b796035af40"
+    },
+    {
+      "idx": 2,
+      "street": "preflop",
+      "actor": "Sophia",
+      "observation": {
+        "players": [
+          "Sophia",
+          "Ethan"
+        ],
+        "hero": "Sophia",
+        "hole_cards": [
+          "7♥",
+          "10♣"
+        ],
+        "street": "preflop",
+        "button": "",
+        "blinds": {
+          "sb": 0,
+          "bb": 0,
+          "ante": 0
+        },
+        "board": [],
+        "pot": 400,
+        "to_act": "Sophia",
+        "to_call": 200,
+        "positions": {},
+        "history_text": [
+          "[PREFLOP] Sophia call",
+          "[PREFLOP] Ethan raise 300"
+        ],
+        "legal_actions": [
+          {
+            "type": "fold",
+            "to": null,
+            "min_to": null,
+            "max_to": null
+          },
+          {
+            "type": "call",
+            "to": null,
+            "min_to": null,
+            "max_to": null
+          },
+          {
+            "type": "raise",
+            "to": null,
+            "min_to": null,
+            "max_to": null
+          }
+        ],
+        "strategy_notes": "",
+        "all_strategy_summaries": {
+          "Sophia": "",
+          "Ethan": ""
+        },
+        "strategy_history": null
+      },
+      "prompt_hash": "69c8a69703060189",
+      "prompt_text": "Players: ['Sophia', 'Ethan'] | Hero: Sophia\nHole cards: ['7♥', '10♣'] | Street: preflop\nButton:  | Blinds: 0/0\nBoard: [] | Pot: 400 | To act: Sophia | To call: 200\nHistory:\n  [PREFLOP] Sophia call\n  [PREFLOP] Ethan raise 300\nLegal actions: fold | call | raise[ ]\nReason explicitly in natural language.\nThen output exactly ONE final line, in lowercase, starting at column 1, as:\ndecision: <action>\n\nRules:\n- Do NOT include any other line that starts with \"decision:\" before the final line.\n- <action> ∈ fold | check | call | raise [total] | all-in\n- Treat ANY first aggression as 'raise' <total> (do not use 'bet').- '<total>' indicates your total contribution in this round (including previous chips).If you had not invested any chips before, 'raise 300' means your first bet of 300.- Use integer chip units (no symbols, no commas).\nImportant strategy note:\nDo not always choose 'check'.\nYou should estimate your winning probability (equity) based on your hole cards and the board.\nIf your winning chance is high, increase aggression via raises.\nIf your winning chance is low, fold more often.\nYou can also consider bluffing: when the opponent's betting pattern suggests they may be weak, you may raise to apply pressure.\n",
+      "model": "gpt-4o-mini",
+      "response_text": "In this scenario, I have been dealt 7♥ and 10♣, and I am currently facing a raise from Ethan who has put in a total of 300 chips after my initial call of 200. With the board being empty at the preflop stage, I need to consider the strength of my hand and the potential of my cards. \n\nThe combination of 7♥ and 10♣ is not particularly strong, but it does have some straight potential depending on the community cards that will be revealed later. However, Ethan has shown aggression by raising, which typically indicates a stronger hand, especially since I have already invested 200 chips. \n\nConsidering the equity of my hand and Ethan's raise, I believe it is prudent to fold. I do not have a strong enough hand to call the additional 300 chips, especially since I could be facing a higher pair or stronger cards from Ethan.\n\ndecision: fold",
+      "decision": {
+        "action": "fold",
+        "amount": null,
+        "to": null,
+        "text": "fold"
+      },
+      "pot_before": 400,
+      "pot_after": 400,
+      "stacks_before": {
+        "Sophia": 4900,
+        "Ethan": 4700
+      },
+      "stacks_after": {
+        "Sophia": 4900,
+        "Ethan": 4700
+      },
+      "invested_before": {
+        "Sophia": 100,
+        "Ethan": 300
+      },
+      "invested_after": {
+        "Sophia": 100,
+        "Ethan": 300
+      },
+      "timestamp_ms": 1757315241615,
+      "analysis_saved": "In this scenario, I have been dealt 7♥ and 10♣, and I am currently facing a raise from Ethan who has put in a total of 300 chips after my initial call of 200. With the board being empty at the preflop stage, I need to consider the strength of my hand and the potential of my cards. \n\nThe combination of 7♥ and 10♣ is not particularly strong, but it does have some straight potential depending on the community cards that will be revealed later. However, Ethan has shown aggression by raising, which typically indicates a stronger hand, especially since I have already invested 200 chips. \n\nConsidering the equity of my hand and Ethan's raise, I believe it is prudent to fold. I do not have a strong enough hand to call the additional 300 chips, especially since I could be facing a higher pair or stronger cards from Ethan.",
+      "analysis_chars": 823,
+      "analysis_sha256": "efc0f249255b43beb47320e63a336ad972e6bf667fba3b2b9a368b1ad410125a"
+    }
+  ]
+}

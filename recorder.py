@@ -4,7 +4,7 @@ from typing import Callable, Optional, Dict, List
 import hashlib, json, unicodedata, re
 from dataclasses import asdict
 from models import Observation, ParsedDecision, StepTrace, HandLog, LegalAction
-
+import os
 _DECISION_LINE_RE = re.compile(r"(?im)^\s*decision\s*[:：]\s*(?P<raw>.+?)\s*$")
 def split_analysis_and_decision(response_text: str):
     """
@@ -112,6 +112,25 @@ def make_observation(state, actor_name: str) -> Observation:
         else:
             legal_actions.extend([LegalAction("check"), LegalAction("bet")])
 
+    # 策略总结（若有）
+    strategy_notes = ""
+    strategy_history = None
+    # 先从玩家对象收集所有当前 summary（即使当前 hand_log 还没填）
+    all_summaries = {p.name: getattr(p, "strategy_summary", "") or "" for p in getattr(state, "players", []) or []}
+    for p in getattr(state, "players", []) or []:
+        if getattr(p, "name", None) == actor_name:
+            strategy_notes = getattr(p, "strategy_summary", "") or ""
+            if getattr(p, "strategy_versions", None):
+                strategy_history = [v.get("text","") for v in p.strategy_versions][-3:]  # 最近3条
+            break
+    # hand_log 内若有最新覆盖（上一手结束时写入），覆盖对应键
+    if hl and hasattr(hl, "strategy_summaries") and hl.strategy_summaries:
+        for k,v in hl.strategy_summaries.items():
+            if v:
+                all_summaries[k] = v
+        if not strategy_notes:
+            strategy_notes = hl.strategy_summaries.get(actor_name, strategy_notes)
+
     return Observation(
         players=players,
         hero=actor_name,
@@ -125,7 +144,10 @@ def make_observation(state, actor_name: str) -> Observation:
         to_call=to_call,
         positions=positions,
         history_text=history_lines,
-        legal_actions=legal_actions,
+    legal_actions=legal_actions,
+    strategy_notes=strategy_notes,
+    all_strategy_summaries=all_summaries,
+    strategy_history=strategy_history,
     )
 def _snapshot(state):
     # 名字列表（用于把 invested 列表映射成字典）
@@ -202,6 +224,7 @@ class StepRecorder:
             actor=self.actor,
             observation=self.obs,
             prompt_hash=prompt_hash,
+            prompt_text=prompt_text,
             model=self.model,
             response_text=self.response_text,    # 已含“思考过程”
             decision=self.decision,
@@ -222,6 +245,26 @@ class StepRecorder:
                 f.write(json.dumps(asdict(step), ensure_ascii=False) + "\n")
 
         return step
+def cost_record(cost, filename="cost_log.txt"):
+    """
+    累计记录 cost 到文件中。
+    如果文件不存在则创建，并从 0 开始。
+    """
+    # 如果文件不存在，先创建并写入 0
+    if not os.path.exists(filename):
+        with open(filename, "w") as f:
+            f.write("0")
+
+    # 读取历史总消费
+    with open(filename, "r") as f:
+        total_cost = float(f.read().strip() or 0)
+
+    # 累加本次 cost
+    total_cost += cost
+
+    # 写回文件
+    with open(filename, "w") as f:
+        f.write(str(total_cost))
 def record_step(
     hand_log: HandLog,
     state, actor_name: str,
@@ -242,18 +285,28 @@ def record_step(
     prompt_text = obs.to_prompt_text()
     prompt_hash = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()[:16]
 
+    # 提取分析文本（decision 行之前的部分）
+    analysis_text, decision_line_text, decision_body = split_analysis_and_decision(response_text)
+    # 可按需裁剪（这里保留完整；如需限制可改成 analysis_text[-4000:]）
+    analysis_saved = analysis_text
+    analysis_sha = hashlib.sha256(analysis_text.encode("utf-8")).hexdigest() if analysis_text else None
+
     step = StepTrace(
         idx=len(hand_log.steps),
         street=obs.street,
         actor=actor_name,
         observation=obs,
         prompt_hash=prompt_hash,
+    prompt_text=prompt_text,
         model=model_name,
         response_text=response_text,
-    decision=decision,
-    pot_before=pot_before, pot_after=pot_after,
-    stacks_before=stacks_before, stacks_after=stacks_after,
-    invested_before=invested_before, invested_after=invested_after,
+        decision=decision,
+        pot_before=pot_before, pot_after=pot_after,
+        stacks_before=stacks_before, stacks_after=stacks_after,
+        invested_before=invested_before, invested_after=invested_after,
+        analysis_saved=analysis_saved,
+        analysis_chars=len(analysis_text) if analysis_text else 0,
+        analysis_sha256=analysis_sha,
     )
     if hasattr(hand_log, "add_step"):
         hand_log.add_step(step)
