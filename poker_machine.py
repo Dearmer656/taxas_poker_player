@@ -5,11 +5,11 @@ note: 记录n个玩家的下注
 """
 import random
 import itertools
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Any
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional
 from api import OpenAIClient
-import argparse
+import argparse, os, json, glob
 import re, unicodedata, copy, hashlib
 from models import HandLog, Street, ActionEntry, ParsedDecision
 from recorder import record_step, make_observation, cost_record
@@ -23,6 +23,12 @@ STARTING_STACK = 5000
 ALLOW_INVALID_INPUT_RETRY = True  # 输入错了反复提示
 # 可供随机挑选的名字池 (2-6 人独一无二)
 NAME_POOL = ["Ethan", "Sophia", "Liam", "Olivia", "Mason", "Ava"]
+
+FIX_MODE_PRESET = {
+    "button": {"name": "Johnny Chan", "hole": ["Qc", "7h"]},
+    "bigblind": {"name": "Erik Seidel", "hole": ["Jc", "9c"]},
+    "board": ["Qc", "8d", "Th", "2s", "6d"]   # Flop(3) + Turn + River
+}
 
 # =========================
 # 牌与玩家
@@ -78,6 +84,24 @@ class Player:
         self.to_call = 0
         self.all_in = False
         self.has_folded = False
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "stack": self.stack,
+            "hole": [asdict(c) for c in self.hole],
+            "is_button": self.is_button,
+            "to_call": self.to_call,
+            "all_in": self.all_in,
+            "has_folded": self.has_folded,
+            "strategy_summary": self.strategy_summary,
+            "strategy_versions": self.strategy_versions,
+            "enable_summary": self.enable_summary,
+            "steps": [
+                asdict(s) if hasattr(s, "__dataclass_fields__") else s
+                for s in self.steps
+            ],
+        }
 
 # =========================
 # 评牌（5张）与 7 取 5
@@ -191,7 +215,9 @@ class BettingState:
     players: 顺时针顺序，button_index 指向按钮位。
     每轮只维护一个 main pot（未实现 side pot；多 All-in 时不完全公平——已在注释声明）。
     """
-    def __init__(self, players: List[Player], button_index: int, hand_log: Optional[HandLog] = None):
+    def __init__(self, players: List[Player], button_index: int,
+                 hand_log: Optional[HandLog] = None,
+                 game_mode: str = "random"):
         self.players: List[Player] = players
         self.button_index = button_index
         self.pot = 0
@@ -201,6 +227,7 @@ class BettingState:
         self.last_raiser: Optional[int] = None
         self.round_over = False
         self.hand_log = hand_log
+        self.game_mode = game_mode
 
     @property
     def alive_indices(self) -> List[int]:
@@ -219,7 +246,7 @@ class BettingState:
     # 兼容 recorder.record_step 里调用
     def apply_action_by_parsed(self, actor_name: str, action: str, amt: Optional[int]):
         try:
-            idx = next(i for i,p in enumerate(self.players) if p.name == actor_name)
+            idx = next(i for i in range(len(self.players)) if self.players[i].name == actor_name)
         except StopIteration:
             return
         # 调用通用 apply_action_multi（不改变轮次结束逻辑，这里只做状态更新）
@@ -307,11 +334,45 @@ _DECISION_LINE_RE = re.compile(
     \s*$                                # 行尾
     """,
 )
+
 def parse_last_decision_line(response_text: str) -> ParsedDecision:
     t = unicodedata.normalize("NFKC", response_text)
     matches = list(_DECISION_LINE_RE.finditer(t))
     if not matches:
-        raise ValueError("No valid 'decision:' line found.")
+        # 1) Embedded pattern search anywhere in text (handles narrative like: Therefore ... 'decision: call'.)
+        embedded_pat = re.compile(
+            r"(?im)decision\s*[:：]\s*(fold|check|call|all[-\s]?in(?:\s+for\s+\d+)?|raise(?:\s+to)?\s+\d+)"
+        )
+        embedded = list(embedded_pat.finditer(t))
+        if embedded:
+            raw = embedded[-1].group(1)
+            raw_norm = raw.lower().strip().strip("'\". ")
+            # Normalize 'raise to' vs 'raise'
+            if raw_norm in ("fold","check","call"):
+                return ParsedDecision(raw_norm, text=raw)
+            m_raise = re.match(r"^raise(?:\s+to)?\s+(\d+)$", raw_norm)
+            if m_raise:
+                return ParsedDecision("raise", to=int(m_raise.group(1)), text=raw)
+            m_allin = re.match(r"^all[-\s]?in(?:\s+for\s+(\d+))?$", raw_norm)
+            if m_allin:
+                amt = m_allin.group(1)
+                return ParsedDecision("all-in", amount=int(amt) if amt else None, text=raw)
+        # 2) Heuristic fallback: inspect last non-empty lines (still supporting pure action words)
+        lines = [ln.strip().strip("'\"") for ln in t.splitlines() if ln.strip()]
+        for raw_line in reversed(lines[-10:]):  # limit search window
+            low = raw_line.lower().strip("'\". ")
+            if low in ("fold","check","call"):
+                return ParsedDecision(low, text=raw_line)
+            m_raise = re.match(r"^raise(?:\s+to)?\s+(\d+)$", low)
+            if m_raise:
+                return ParsedDecision("raise", to=int(m_raise.group(1)), text=raw_line)
+            m_allin = re.match(r"^all[-\s]?in(?:\s+for\s+(\d+))?$", low)
+            if m_allin:
+                amt = m_allin.group(1)
+                return ParsedDecision("all-in", amount=int(amt) if amt else None, text=raw_line)
+        # 3) If still not found, raise with preview
+        preview = t[-400:] if len(t) > 400 else t
+        raise ValueError("No valid 'decision:' line found (preview tail):\n" + preview)
     m = matches[-1]
     raw = m.group("raw")
     if m.group("fold"):  return ParsedDecision("fold", text=raw)
@@ -323,36 +384,68 @@ def parse_last_decision_line(response_text: str) -> ParsedDecision:
     # all-in
     amt = int(m.group("allin_amt")) if m.group("allin_amt") else None
     return ParsedDecision("all-in", amount=amt, text=raw) 
+import pdb
+import time
+
 def prompt_action(player, state, street_name: str):
-    # 1) 组 observation（下一行会内嵌你已有的 History/Board/等）
     obs = make_observation(state, player.name)
-    prompt_text = obs.to_prompt_text()
+    prompt_text = obs.to_prompt_text(state)
+    max_retry = 3
+    backoff = 1.0
+    for attempt in range(max_retry):
+        try:
+            resp_text, _, cost = player.agent(model_name='gpt-4o-mini', prompt=prompt_text)
+        except Exception as e:
+            print(f"[APIError] attempt {attempt+1}/{max_retry}: {e}")
+            time.sleep(backoff); backoff = min(backoff*2, 8.0)
+            continue
 
-    # 2) 调模型（保留完整 response_text 以便“思考过程”存档）
-    # pdb.set_trace()
-    resp_text, _, cost = player.agent(model_name='gpt-4o-mini', prompt=prompt_text)  # 你的返回是 (text, _, cost)
-    if cost:
-        cost_record(cost)
+        if cost:
+            cost_record(cost)
 
-    # 3) 解析最后一条 decision 行
-    decision = parse_last_decision_line(resp_text)
+        try:
+            decision = parse_last_decision_line(resp_text)
+        except Exception as e:
+            print(f"[ParseError] attempt {attempt+1}/{max_retry}: {e}")
+            time.sleep(backoff); backoff = min(backoff*2, 8.0)
+            continue
 
-    # 4) 记录一步（含应用前后状态）
+        # 轻量合法性检查（可选）
+        legal_names = set()
+        for la in getattr(obs, "legal_actions", []) or []:
+            if isinstance(la, str):
+                legal_names.add(la.lower())
+            elif isinstance(la, dict):
+                legal_names.add(str(la.get("action", "")).lower())
+            else:
+                name = getattr(la, "action", getattr(la, "name", None))
+                if name: legal_names.add(str(name).lower())
 
-    record_step(
-        hand_log=state.hand_log,
-        state=state,
-        actor_name=player.name,
-        model_name='gpt-4o-mini',
-        response_text=resp_text,
-        decision=decision,
-        obs=obs
-    )
+        act = decision.action.lower()
+        if legal_names and act not in legal_names:
+            print(f"[IllegalDecision] '{act}' not in legal_actions {sorted(legal_names)}; retrying...")
+            time.sleep(backoff); backoff = min(backoff*2, 8.0)
+            continue
+        if act == "raise" and getattr(decision, "to", None) is None:
+            print("[InvalidRaise] missing 'to' amount; retrying...")
+            time.sleep(backoff); backoff = min(backoff*2, 8.0)
+            continue
 
-    # 5) 返回给你的原有引擎（如果你不在 record_step 里 apply，就在这里 apply 再返回）
-    if decision.action in ("raise",):
-        return "raise", decision.to
-    return decision.action, None
+        record_step(
+            hand_log=state.hand_log,
+            state=state,
+            actor_name=player.name,
+            model_name='gpt-4o-mini',
+            prompt_text=prompt_text,
+            response_text=resp_text,
+            decision=decision,
+            obs=obs
+        )
+        if act == "raise":
+            return "raise", decision.to
+        return act, None
+
+    raise ValueError(f"LLM连续{max_retry}次输出无法解析/非法，已放弃。")
 
 def apply_action(player_idx: int, action: str, amt: Optional[int],
                  state: BettingState, street: str) -> str:
@@ -409,8 +502,16 @@ def apply_action(player_idx: int, action: str, amt: Optional[int],
     # ---- CALL ----
     if action == "call":
         if p.to_call == 0:
-            print("无需跟注（你可以 check）。")
-            return "invalid"
+            # 容错：模型输出 call 但无需跟注 -> 等价于 check
+            print(f"{p.name} 输入 'call' 但无需跟注，视为 CHECK。")
+            if state.hand_log:
+                state.hand_log.add_action(ActionEntry(
+                    street=street, actor=p.name, action="check", amount=0,
+                    to_call_before=prev_to_call, invested_before=prev_invested,
+                    invested_after=state.invested[p.name], pot_after=state.pot,
+                    note="call-as-check"
+                ))
+            return "continue"
         pay = min(p.stack, p.to_call)
         p.stack -= pay
         state.add_to_pot(pay)
@@ -502,7 +603,7 @@ def apply_action(player_idx: int, action: str, amt: Optional[int],
 
 
 
-def run_betting_round(state: BettingState, street: str, first_to_act_idx: int) -> None:
+def run_betting_round(state, street, first_to_act_idx):
     if street != "Preflop":
         state.reset_round()
 
@@ -510,27 +611,35 @@ def run_betting_round(state: BettingState, street: str, first_to_act_idx: int) -
     acted_after_raise = set()
     idx = first_to_act_idx
 
-    # 跳过已弃牌 / 全下玩家
     def next_index(i):
         for step in range(1, n+1):
             ni = (i + step) % n
             p = state.players[ni]
-            if not p.has_folded and not (p.all_in or p.stack == 0 and state.invested[p.name] == state.current_bet):
+            if not p.has_folded and not (p.all_in or (p.stack == 0 and state.invested[p.name] == state.current_bet)):
                 return ni
         return i
 
+    safety = 0
     while True:
-        active_players = [p for p in state.players if not p.has_folded]
-        if len(active_players) <= 1:
+        safety += 1
+        if safety > 500:
+            print(f"[WARN] Safety break on street {street}. last_raiser={state.last_raiser}")
             state.round_over = True
             return
-        # 如果所有非 all-in 玩家都已 all-in，则直接结束
-        if all(p.all_in or p.stack == 0 for p in active_players):
+
+        alive_players = [p for p in state.players if not p.has_folded]
+        if len(alive_players) <= 1:
+            state.round_over = True
+            return
+
+        # 如果仅剩 1 个未 all-in 且未弃牌玩家（其他都 all-in 或弃牌），无需继续动作
+        need_active = [p for p in alive_players if not p.all_in]
+        if len(need_active) <= 1:
             state.round_over = True
             return
 
         player = state.players[idx]
-        if player.has_folded or (player.all_in or player.stack == 0):
+        if player.has_folded or player.all_in or player.stack == 0:
             idx = next_index(idx)
             continue
 
@@ -540,23 +649,29 @@ def run_betting_round(state: BettingState, street: str, first_to_act_idx: int) -
 
         if result == "invalid":
             continue
-        if result == "hand_end":  # 整手牌已有人获胜
+        if result == "hand_end":
             state.round_over = True
             return
 
-        # 下注轮是否可结束：所有存活玩家 to_call ==0 且 无 last_raiser 且 每人自上次加注后至少行动一次
+        # 下注轮结束判定
         if state.last_raiser is not None and state.last_raiser != before_raiser:
             acted_after_raise = {idx}
         else:
             acted_after_raise.add(idx)
-            # 参与者集合（未弃牌且未全下前投入差额）
-            need_act_indices = [i for i,p in enumerate(state.players)
-                                if (not p.has_folded) and not p.all_in]
-            if all(state.players[i].to_call == 0 for i in need_act_indices) and \
-               state.last_raiser is None and \
-               acted_after_raise.issuperset(need_act_indices):
-                state.round_over = True
-                return
+
+        need_act_indices = [
+            i for i, p in enumerate(state.players)
+            if (not p.has_folded) and not p.all_in
+        ]
+
+        if not need_act_indices:
+            state.round_over = True
+            return
+
+        if all(state.players[i].to_call == 0 for i in need_act_indices) and \
+           acted_after_raise.issuperset(need_act_indices):
+            state.round_over = True
+            return
 
         idx = next_index(idx)
 
@@ -589,12 +704,12 @@ def showdown_multi(players: List[Player], board: List[Card], pot: int):
         for i,p in enumerate(winners):
             p.stack += share + (1 if i < remainder else 0)
 import os, datetime
-def play_one_hand_multi(players: List[Player], button_index: int, hand_no: int = 1, save_dir: str = "logs") -> int:
+def play_one_hand_multi(players: List[Player], button_index: int, hand_no: int = 1, save_dir: str = "logs", game_mode: str = "random") -> int:
     """进行一手牌。返回新的按钮 index (下一手使用)。未实现 side pot。"""
     def _persist():
         try:
             os.makedirs(save_dir, exist_ok=True)
-            ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+            ts = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
             path = os.path.join(save_dir, f"hand_{hand_no}_{ts}.json")
             hand_log.save_json(path)
         except Exception as e:
@@ -607,19 +722,32 @@ def play_one_hand_multi(players: List[Player], button_index: int, hand_no: int =
     # 重置
     for p in players:
         p.reset_for_new_hand()
-    deck = Deck(); deck.shuffle()
-    # 简化 HandLog：只保存按钮名（构造仍沿用原 API 占位两玩家，不严格记录多玩家）
+
+    if game_mode == "fix":
+        # 强制玩家顺序 Max, Lucy
+        if len(players) != 2 or players[0].name != "Max" or players[1].name != "Lucy":
+            print("[FixMode] 强制重排玩家为 Max, Lucy")
+            # 重新构建或报错，这里简单重排（假设名字已经是 Max Lucy）
+            players.sort(key=lambda x: ["Max","Lucy"].index(x.name))
+        deck = build_fixed_deck()
+    else:
+        deck = Deck()
+        deck.shuffle()
+
+    # 构建 hand_log
     dummy_btn = players[button_index]
     dummy_bb  = players[(button_index+1)%len(players)] if len(players)>1 else players[0]
     hand_log = HandLog(hand_no, button_name=dummy_btn.name, sb=SMALL_BLIND, bb=BIG_BLIND,
                        p_btn=dummy_btn, p_bb=dummy_bb, players=players)
+    hand_log.starting_stacks = {p.name: p.stack for p in players}
+    hand_log.game_mode = game_mode  # 方便序列化
 
     # 发底牌
     for p in players:
         p.hole = deck.deal(2)
         hand_log.set_hole_cards(p.name, p.hole)
 
-    state = BettingState(players, button_index, hand_log=hand_log)
+    state = BettingState(players, button_index, hand_log=hand_log, game_mode=game_mode)
     print("\n==============================")
     order_str = " -> ".join(p.name for p in players)
     print(f"手 {hand_no} | 座位顺序(按钮*标记)：{order_str}")
@@ -643,8 +771,11 @@ def play_one_hand_multi(players: List[Player], button_index: int, hand_no: int =
         return (button_index + 1) % len(players)
 
     # 翻牌
-    board: List[Card] = []
-    deck.burn(); board = deck.deal(3); hand_log.set_board("Flop", board); print(f"\n翻牌 FLOP: {board}")
+    deck.burn()
+    flop_cards = deck.deal(3)
+    board = flop_cards[:]  # 新建一个列表
+    hand_log.set_board("Flop", flop_cards)
+    print(f"\n翻牌 FLOP: {flop_cards}")
     first_flop = (button_index + 1) % len(players) if len(players)>2 else (state.button_index ^ 1)
     run_betting_round(state, "Flop", first_flop)
     if state.pot == 0 or sum(0 if p.has_folded else 1 for p in players) <=1:
@@ -653,7 +784,11 @@ def play_one_hand_multi(players: List[Player], button_index: int, hand_no: int =
         return (button_index + 1) % len(players)
 
     # 转牌
-    deck.burn(); board += deck.deal(1); hand_log.set_board("Turn", board); print(f"\n转牌 TURN: {board}")
+    deck.burn()
+    turn_card = deck.deal(1)
+    board += turn_card
+    hand_log.set_board("Turn", turn_card)
+    print(f"\n转牌 TURN: {turn_card}")
     run_betting_round(state, "Turn", first_flop)
     if state.pot == 0 or sum(0 if p.has_folded else 1 for p in players) <=1:
         _summaries()
@@ -661,7 +796,11 @@ def play_one_hand_multi(players: List[Player], button_index: int, hand_no: int =
         return (button_index + 1) % len(players)
 
     # 河牌
-    deck.burn(); board += deck.deal(1); hand_log.set_board("River", board); print(f"\n河牌 RIVER: {board}")
+    deck.burn()
+    river_card = deck.deal(1)
+    board += river_card
+    hand_log.set_board("River", river_card)
+    print(f"\n河牌 RIVER: {river_card}")
     run_betting_round(state, "River", first_flop)
     if state.pot == 0 or sum(0 if p.has_folded else 1 for p in players) <=1:
         _summaries()
@@ -672,6 +811,37 @@ def play_one_hand_multi(players: List[Player], button_index: int, hand_no: int =
     remaining = [p for p in players if not p.has_folded]
     showdown_multi(remaining, board, state.pot)
     state.pot = 0
+
+    # 摊牌和结算后
+    # 记录结果信息
+    stacks_before = getattr(hand_log, "stacks_before", None)
+    if stacks_before is None:
+        stacks_before = {p.name: p.stack for p in players}
+    stacks_after = {p.name: p.stack for p in players}
+    delta = {name: stacks_after[name] - stacks_before.get(name, 0) for name in stacks_after}
+    winners = [name for name, d in delta.items() if d > 0]
+    losers = [name for name, d in delta.items() if d < 0]
+    result_info = {
+        "winners": winners,
+        "losers": losers,
+        "delta": delta,
+        "ending_stacks": stacks_after,
+    }
+    # 牌型信息（只记录未弃牌玩家）
+    hand_types = {}
+    # board = ... # 获取当前公共牌列表
+    for p in players:
+        if not p.has_folded:
+            cat, tie, best5 = best_7_of_5(p.hole + board)
+            hand_types[p.name] = {
+                "category": category_name(cat),
+                "best_hand": [str(card) for card in best5],
+                "tie_breaker": tie
+            }
+    result_info["hand_types"] = hand_types
+    result_info["board"] = [str(card) for card in board]
+    hand_log.result_summary = result_info
+
     # 保存日志
     _summaries()
     _persist()
@@ -683,14 +853,53 @@ def play_one_hand_multi(players: List[Player], button_index: int, hand_no: int =
 SUMMARY_MAX_CHARS = 700
 
 def build_summary_prompt(old_summary: str, hand_log: HandLog, player: Player) -> str:
-    # 抽取本手该玩家参与的主要信息：投入、行动、结果（是否获胜）
-    actions = []
+    # 1) 汇总所有玩家动作（按街道顺序）
+    actions_all = []
     for street in ("Preflop","Flop","Turn","River"):
         for a in hand_log.history.get(street, []):
-            if a.actor == player.name:
-                actions.append(f"{street}:{a.action}{'' if a.amount==0 else ' '+str(a.amount)} (pot={a.pot_after})")
+            amt = "" if getattr(a, "amount", 0) in (None, 0) else f" {a.amount}"
+            actions_all.append(f"{street}:{a.actor} {a.action}{amt} (pot={a.pot_after})")
+
+    # 2) 自己的手牌与在当前公牌下的牌型（不泄露对手手牌）
+    # 获取最终已揭示的公牌
+    board_cards = []
+    try:
+        if hasattr(hand_log, "board") and isinstance(hand_log.board, dict):
+            for st in ("Flop","Turn","River"):
+                cs = hand_log.board.get(st)
+                if cs:
+                    # 兼容列表或单张
+                    if isinstance(cs, list):
+                        board_cards.extend(cs)
+                    else:
+                        board_cards.append(cs)
+        elif hasattr(hand_log, "result_summary") and hand_log.result_summary.get("board"):
+            # 兼容 result_summary 中的字符串牌面
+            from_str = []
+            for s in hand_log.result_summary["board"]:
+                # 简单解析形如 'Q♦'
+                rank_str, suit = s[:-1], s[-1]
+                # 将 10 可能写作 '10'
+                rank_map = {"T":10,"J":11,"Q":12,"K":13,"A":14}
+                r = rank_map.get(rank_str.upper(), int(rank_str) if rank_str.isdigit() else 0)
+                board_cards.append(Card(r, suit))
+    except Exception:
+        pass
+
+    hero_hole_str = " ".join(str(c) for c in (player.hole or [])) or "(unknown)"
+    hero_hand_line = "Hero Hand: n/a"
+    try:
+        if player.hole and len(player.hole) + len(board_cards) >= 5:
+            cat, tie, best5 = best_7_of_5(player.hole + board_cards)
+            hero_best_str = " ".join(str(c) for c in best5)
+            hero_hand_line = f"Hero Hand: {category_name(cat)} [{hero_best_str}]"
+    except Exception:
+        pass
+
+    board_str = " ".join(str(c) for c in board_cards) if board_cards else "(none)"
+
+    # 3) 结果与筹码变化
     result = "unknown"
-    # 粗略判定是否赢（若手牌结束后 stack 比 starting 高且有参与）
     start_stack = hand_log.starting_stacks.get(player.name, player.stack)
     end_stack = player.stack
     if end_stack > start_stack:
@@ -699,17 +908,26 @@ def build_summary_prompt(old_summary: str, hand_log: HandLog, player: Player) ->
         result = "lost chips"
     else:
         result = "no net change"
+
+    # 4) 旧总结
     old_block = old_summary.strip() if old_summary else "(none)"
+
+    # 5) 生成总结用 prompt（英文、精简）
+    actions_line = " | ".join(actions_all) if actions_all else "no actions logged"
     prompt = (
         "You are updating a concise personal poker strategy note after a single hand.\n"
-        "Keep it under " + str(SUMMARY_MAX_CHARS) + " characters.\n"
+        f"Keep it under {SUMMARY_MAX_CHARS} characters.\n"
         "You may ADD new insights, MODIFY existing ones, or REMOVE outdated ones.\n"
         "If no meaningful adjustment is needed, return the previous summary unchanged.\n"
-        "Write in English, bullet-like short sentences (no numbering needed). Avoid repeating obvious rules.\n"
+        "Write in English, bullet-like short sentences (no numbering). Avoid repeating obvious rules.\n"
         "Never include lines starting with 'decision:'.\n"
         "--- Previous Summary ---\n" + old_block + "\n"
         "--- This Hand Key Facts ---\n"
-        f"Result: {result}; Stack change: {end_stack-start_stack}; Actions: {' | '.join(actions) if actions else 'fold preflop or no actions logged'}\n"
+        f"Result: {result}; Stack change: {end_stack-start_stack}\n"
+        f"Hero hole: {hero_hole_str}\n"
+        f"Board: {board_str}\n"
+        f"{hero_hand_line}\n"
+        f"Action History (all players): {actions_line}\n"
         "--- Output Updated Summary Below ---"
     )
     return prompt
@@ -745,59 +963,92 @@ def parse_option():
 
     args, unparsed = parser.parse_known_args()
     return args
-def main():
-    print("=== N 人德州扑克 (2-6) ===")
-    while True:
-        try:
-            n = int(input("请输入玩家数量 (2-6)：").strip())
-        except ValueError:
-            print("请输入数字。")
-            continue
-        if 2 <= n <= 6:
-            break
-        print("范围错误。")
+def resume_from_file(path: str, api_args: dict):
+    with open(path, "r", encoding="utf-8") as f:
+        hand = json.load(f)
+    names = hand.get("player_order") or list(hand["starting_stacks"].keys())
+    sb = hand.get("sb", hand.get("sb_size", 50))
+    bb = hand.get("bb", hand.get("bb_size", 100))
+    ending = hand.get("ending_stacks") or hand.get("starting_stacks", {})
+    start = hand.get("starting_stacks", {})
+    stacks = {n: ending.get(n, start.get(n, 0)) for n in names}
 
-    args = parse_option()
-    api_args = {"temperature":0.9, "max_tokens":1024, "args": args}
+    players = []
+    summaries = hand.get("strategy_summaries", {})
+    for n in names:
+        p = Player(name=n, stack=stacks.get(n, 0), args=api_args)  # 传入 api_args
+        if hasattr(p, "strategy_summary"):
+            p.strategy_summary = summaries.get(n, "")
+        players.append(p)
 
-    # 随机抽取不重复名字
-    chosen_names = random.sample(NAME_POOL, n)
-    players: List[Player] = [Player(name, STARTING_STACK, api_args) for name in chosen_names]
+    last_btn_name = hand.get("button") or hand.get("button_name")
+    try:
+        last_btn_idx = names.index(last_btn_name)
+    except Exception:
+        last_btn_idx = 0
+    next_button_index = (last_btn_idx + 1) % len(names)
+    return players, next_button_index, sb, bb
 
-    # 启用总结的前 K 位玩家
-    while True:
-        try:
-            k = int(input("请输入需要开启总结功能的前K位玩家数量 (0..n)：").strip())
-        except ValueError:
-            print("请输入数字。")
-            continue
-        if 0 <= k <= n:
-            break
-        print("范围错误。")
-    for idx, p in enumerate(players):
-        if idx < k:
-            p.enable_summary = True
-    if k>0:
-        print(f"已为前{k}位玩家开启总结功能: {', '.join(p.name for p in players[:k])}")
-    print("座位 (顺时针)：", " -> ".join(p.name for p in players))
+def resume_from_latest_log(save_dir: str = "logs", api_args: dict = None):
+    os.makedirs(save_dir, exist_ok=True)
+    files = sorted(glob.glob(os.path.join(save_dir, "hand_*.json")), key=os.path.getmtime)
+    if not files:
+        return None
+    latest = files[-1]
+    print(f"[Resume] Loading latest hand: {os.path.basename(latest)}")
+    return resume_from_file(latest, api_args)
 
-    button_index = 0  # 初始按钮设为列表第 0 个
-    hand_no = 1
-    while True:
-        # 检查是否仍然有至少两个玩家有筹码
-        alive_with_stack = [p for p in players if p.stack > 0]
-        if len(alive_with_stack) < 2:
-            print("游戏结束：只剩一名玩家有筹码。")
-            break
-        print(f"\n--- 第 {hand_no} 手 ---")
-        print("筹码:", ", ".join(f"{p.name}={p.stack}" for p in players))
-        button_index = play_one_hand_multi(players, button_index, hand_no, save_dir="logs")
-        print("\n手牌结束后筹码:", ", ".join(f"{p.name}={p.stack}" for p in players))
-        # cont = input("回车继续；输入 q 退出：").strip().lower()
-        # if cont == 'q':
-        #     break
-        hand_no += 1
-        if hand_no == 50:
-            break
-if __name__ == "__main__":
-    main()
+def _make_card(code: str) -> Card:
+    code = code.strip()
+    if len(code) < 2:
+        raise ValueError(f"Bad card code: {code}")
+    r_str, suit = code[:-1], code[-1]
+    r_up = r_str.upper()
+    # 处理 T
+    if r_up == "T":
+        rank = 10
+    else:
+        if r_up in STR_TO_RANK:
+            rank = STR_TO_RANK[r_up]
+        else:
+            rank = int(r_str)
+    suit_map = {'c': '♣', 'd': '♦', 'h': '♥', 's': '♠'}
+    suit_sym = suit_map.get(suit.lower(), suit)
+    return Card(rank, suit_sym)
+
+def build_fixed_deck() -> Deck:
+    """
+    固定顺序：
+      Button 两张 -> BigBlind 两张 -> burn -> Flop3 -> burn -> Turn1 -> burn -> River1 -> 其余随机
+    """
+    preset = FIX_MODE_PRESET
+    btn_hole = [_make_card(c) for c in preset["button"]["hole"]]
+    bb_hole  = [_make_card(c) for c in preset["bigblind"]["hole"]]
+    flop = [_make_card(c) for c in preset["board"][:3]]
+    turn = [_make_card(preset["board"][3])]
+    river = [_make_card(preset["board"][4])]
+
+    # 构建整副牌并排除已用
+    full = [Card(r, s) for r in RANKS for s in SUITS]
+    used_sig = {repr(c) for c in (btn_hole + bb_hole + flop + turn + river)}
+    rest = [c for c in full if repr(c) not in used_sig]
+    random.shuffle(rest)
+
+    burn1 = rest.pop()
+    burn2 = rest.pop()
+    burn3 = rest.pop()
+
+    order = []
+    order += btn_hole
+    order += bb_hole
+    order.append(burn1)
+    order += flop
+    order.append(burn2)
+    order += turn
+    order.append(burn3)
+    order += river
+    order += rest
+
+    dk = Deck()
+    dk.cards = order
+    return dk

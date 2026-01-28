@@ -5,7 +5,19 @@ import hashlib, json, unicodedata, re
 from dataclasses import asdict
 from models import Observation, ParsedDecision, StepTrace, HandLog, LegalAction
 import os
+
 _DECISION_LINE_RE = re.compile(r"(?im)^\s*decision\s*[:：]\s*(?P<raw>.+?)\s*$")
+
+def _compute_show_guidance(street: str, actor_name: str, history_lines) -> bool:
+    """Return True only for the actor's first action on preflop.
+    Logic: show if street == preflop and no history line contains '[Preflop]' with this actor's name.
+    history_lines format example: '[Preflop] Alice raise 120 (pot=...)'"""
+    if street != 'preflop':
+        return False
+    for ln in history_lines:
+        if ln.startswith('[Preflop]') and f' {actor_name} ' in ln:
+            return False
+    return True
 def split_analysis_and_decision(response_text: str):
     """
     返回 (analysis_text, decision_line_text, decision_body_text)
@@ -19,12 +31,13 @@ def split_analysis_and_decision(response_text: str):
     analysis = t[:m.start()].rstrip("\n")
     return analysis, m.group(0).strip(), m.group("raw").strip()   
 # 1) 根据 BettingState + actor 生成 Observation（你已有的信息填进去）
+import pdb
 def make_observation(state, actor_name: str) -> Observation:
-    hl = getattr(state, "hand_log", None)
+    hand_log = state.hand_log
 
     # --- players 列表 ---
-    if hl and getattr(hl, "starting_stacks", None):
-        players = list(hl.starting_stacks.keys())
+    if hand_log and getattr(hand_log, "starting_stacks", None):
+        players = list(hand_log.starting_stacks.keys())
     elif getattr(state, "players", None):
         players = [getattr(p, "name", "") for p in state.players if getattr(p, "name", None)]
     else:
@@ -37,25 +50,31 @@ def make_observation(state, actor_name: str) -> Observation:
         "ante": int(getattr(state, "ante", 0) or 0),
     }
     # 若 state 无，尝试从 hand_log.game.blinds 回退
-    if (blinds["sb"] == 0 and blinds["bb"] == 0) and hl and getattr(hl, "game", None):
-        gb = hl.game.get("blinds", {}) if isinstance(hl.game, dict) else {}
+    if (blinds["sb"] == 0 and blinds["bb"] == 0) and hand_log and getattr(hand_log, "game", None):
+        gb = hand_log.game.get("blinds", {}) if isinstance(hand_log.game, dict) else {}
         blinds["sb"] = int(gb.get("sb", 0))
         blinds["bb"] = int(gb.get("bb", 0))
         blinds["ante"] = int(gb.get("ante", 0))
 
     # --- board ---
     board: List[str] = []
+    def _collect_board(src):
+        acc: List[str] = []
+        if isinstance(src, dict):
+            # 允许任意大小写键：Flop/flop/FLOP 等
+            for target in ("flop", "turn", "river"):
+                for k, v in src.items():
+                    if isinstance(k, str) and k.lower() == target:
+                        acc.extend(v or [])
+        elif isinstance(src, (list, tuple)):
+            # 有的实现可能直接给一个已经揭示到当前街的列表
+            acc.extend([c for c in src])
+        return acc
     bd = getattr(state, "board", None)
-    if isinstance(bd, dict):
-        board += bd.get("Flop", []) or []
-        board += bd.get("Turn", []) or []
-        board += bd.get("River", []) or []
-    elif hl and getattr(hl, "board_by_street", None):
-        bbs = hl.board_by_street
-        # 兼容大小写键
-        board += (bbs.get("flop") or bbs.get("Flop") or []) \
-              +  (bbs.get("turn") or bbs.get("Turn") or []) \
-              +  (bbs.get("river") or bbs.get("River") or [])
+    if bd is not None:
+        board.extend(_collect_board(bd))
+    if not board and hand_log and hasattr(hand_log, "board"):
+        board.extend(_collect_board(hand_log.board))
 
     # --- history 文本（用于复现 prompt）---
     history_lines: List[str] = []
@@ -70,8 +89,12 @@ def make_observation(state, actor_name: str) -> Observation:
                 amt_s  = "" if amount in (None, 0) else f" {amount}"
                 pot_s  = f" (pot={pot_a})" if pot_a is not None else ""
                 history_lines.append(f"[{s}] {actor} {action}{amt_s}{pot_s}")
-    elif hl and getattr(hl, "steps", None):
-        for st in hl.steps:
+    elif hand_log and getattr(hand_log, "steps", None):
+        for st in hand_log.steps:
+            # 跳过 dict 类型（如 two-step 记录的概率分析）
+            if isinstance(st, dict):
+                continue
+            # 原有处理
             history_lines.append(f"[{str(st.street).upper()}] {st.actor} {getattr(st.decision, 'text', '')}")
 
     # --- positions（可选，没有就空）---
@@ -82,12 +105,12 @@ def make_observation(state, actor_name: str) -> Observation:
     hc = getattr(state, "hole_cards", None)
     if isinstance(hc, dict) and actor_name in hc:
         hero_cards = hc[actor_name]
-    elif hl and getattr(hl, "hole_cards", None) and actor_name in hl.hole_cards:
-        hero_cards = hl.hole_cards[actor_name]
+    elif hand_log and getattr(hand_log, "hole_cards", None) and actor_name in hand_log.hole_cards:
+        hero_cards = hand_log.hole_cards[actor_name]
 
     # --- 其它基本量 ---
     street = str(getattr(state, "current_street", "preflop")).lower()
-    button = getattr(state, "button_name", None) or (getattr(hl, "button", "") if hl else "")
+    button = getattr(state, "button_name", None) or (getattr(hand_log, "button", "") if hand_log else "")
     pot    = int(getattr(state, "pot", 0) or 0)
 
     # to_call
@@ -124,12 +147,12 @@ def make_observation(state, actor_name: str) -> Observation:
                 strategy_history = [v.get("text","") for v in p.strategy_versions][-3:]  # 最近3条
             break
     # hand_log 内若有最新覆盖（上一手结束时写入），覆盖对应键
-    if hl and hasattr(hl, "strategy_summaries") and hl.strategy_summaries:
-        for k,v in hl.strategy_summaries.items():
+    if hand_log and hasattr(hand_log, "strategy_summaries") and hand_log.strategy_summaries:
+        for k,v in hand_log.strategy_summaries.items():
             if v:
                 all_summaries[k] = v
         if not strategy_notes:
-            strategy_notes = hl.strategy_summaries.get(actor_name, strategy_notes)
+            strategy_notes = hand_log.strategy_summaries.get(actor_name, strategy_notes)
 
     return Observation(
         players=players,
@@ -143,11 +166,13 @@ def make_observation(state, actor_name: str) -> Observation:
         to_act=actor_name,
         to_call=to_call,
         positions=positions,
-        history_text=history_lines,
-    legal_actions=legal_actions,
-    strategy_notes=strategy_notes,
-    all_strategy_summaries=all_summaries,
-    strategy_history=strategy_history,
+        history_text=history_lines,  # 用完整历史
+        legal_actions=legal_actions,
+        stacks={p.name: p.stack for p in getattr(state, 'players', []) or []},
+        strategy_notes=strategy_notes,
+        all_strategy_summaries=all_summaries,
+        strategy_history=strategy_history,
+        show_guidance=_compute_show_guidance(street, actor_name, history_lines),
     )
 def _snapshot(state):
     # 名字列表（用于把 invested 列表映射成字典）
@@ -200,7 +225,7 @@ class StepRecorder:
         self.store_analysis = store_analysis
         self.analysis_max_chars = analysis_max_chars
 
-    def run(self, apply_fn: Callable[[], None]) -> StepTrace:
+    def run(self, apply_fn: Callable[[], None], prompt_text: str) -> StepTrace:
         # 1) before 快照
         before = _snapshot(self.state)
 
@@ -211,8 +236,6 @@ class StepRecorder:
         after = _snapshot(self.state)
 
         # 4) 组 StepTrace
-        prompt_text = self.obs.to_prompt_text()
-        prompt_hash = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()[:16]
 
         analysis_text, decision_line, decision_raw = split_analysis_and_decision(self.response_text)
         clipped = (analysis_text[-4000:] if analysis_text else None)  # 例如仅保留末尾 4000 字
@@ -223,7 +246,6 @@ class StepRecorder:
             street=self.obs.street,
             actor=self.actor,
             observation=self.obs,
-            prompt_hash=prompt_hash,
             prompt_text=prompt_text,
             model=self.model,
             response_text=self.response_text,    # 已含“思考过程”
@@ -270,6 +292,7 @@ def record_step(
     state, actor_name: str,
     model_name: str,
     response_text: str,
+    prompt_text: str,
     decision: ParsedDecision,
     obs: Observation
 ):
@@ -280,10 +303,6 @@ def record_step(
     pot_after       = pot_before
     stacks_after    = dict(stacks_before)
     invested_after  = dict(invested_before)
-
-    # 生成 step 记录
-    prompt_text = obs.to_prompt_text()
-    prompt_hash = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()[:16]
 
     # 提取分析文本（decision 行之前的部分）
     analysis_text, decision_line_text, decision_body = split_analysis_and_decision(response_text)
@@ -296,7 +315,6 @@ def record_step(
         street=obs.street,
         actor=actor_name,
         observation=obs,
-        prompt_hash=prompt_hash,
     prompt_text=prompt_text,
         model=model_name,
         response_text=response_text,
@@ -310,3 +328,7 @@ def record_step(
     )
     if hasattr(hand_log, "add_step"):
         hand_log.add_step(step)
+
+    # 获取公共牌列表
+    if hasattr(state, "board"):
+        board = state.board  # 应为 List[Card]

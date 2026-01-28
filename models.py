@@ -2,6 +2,7 @@ from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Any, Optional
 from enum import Enum
 import time, json, hashlib
+import pdb
 STREETS = ["Preflop", "Flop", "Turn", "River"]
 class Street(str, Enum):
     PREFLOP = "preflop"
@@ -29,17 +30,22 @@ class Observation:  # 直接存你喂给 LLM 的“状态快照”（便于复�
     positions: Dict[str, str]      # 可选：BTN/SB/BB/UTG...
     history_text: List[str]        # 你现在生成的 History 行（可复现 prompt）
     legal_actions: List[LegalAction]
+    stacks: Optional[Dict[str, int]] = None   # 当前各玩家剩余筹码
     strategy_notes: Optional[str] = ""   # 该玩家当前策略总结
     all_strategy_summaries: Optional[Dict[str, str]] = None  # 所有玩家最新总结（仅内部使用）
     strategy_history: Optional[List[str]] = None  # 该玩家历史版本文本（旧->新 或 截断）
+    show_guidance: bool = True      # 是否在本次 observation 中展示预翻牌指导（仅首个 preflop 决策）
 
-    def to_prompt_text(self) -> str:
-        # 你现有 build_llm_prompt_text 的更“稳”版本（裁剪为必需字段）
+    def to_prompt_text(self, state, decision_required: bool = True) -> str:
         lines = []
         lines.append(f"Players: {self.players} | Hero: {self.hero}")
         lines.append(f"Hole cards: {self.hole_cards} | Street: {self.street}")
         lines.append(f"Button: {self.button} | Blinds: {self.blinds['sb']}/{self.blinds['bb']}")
         lines.append(f"Board: {self.board} | Pot: {self.pot} | To act: {self.to_act} | To call: {self.to_call}")
+        if self.stacks:
+            # 紧凑显示：姓名:筹码（按玩家顺序）
+            ordered = [f"{n}:{self.stacks.get(n, '?')}" for n in self.players]
+            lines.append("Stacks: " + ", ".join(ordered))
         if self.positions:
             lines.append(f"Positions: {self.positions}")
         if self.strategy_notes:
@@ -59,8 +65,41 @@ class Observation:  # 直接存你喂给 LLM 的“状态快照”（便于复�
     #             continue
     #         lines.append(f"  {n}: {s[:300]}")
     #     lines.append("---")
-        lines.append("History:")
-        for h in self.history_text: lines.append(f"  {h}")
+        # --- Strategic guidance block (focused on reducing excessive preflop folding) ---
+        if self.street.lower() == "preflop" and self.show_guidance:
+            hero_pos = self.positions.get(self.hero) if self.positions else None
+            tag = f"preflop / {hero_pos}" if hero_pos else "preflop"
+            lines.append(f"Strategic Guidance ({tag}):")
+            lines.extend([
+                "VPIP target ~25-35%; widen late (CO/BTN), tighten UTG.",
+                "Continue (raise/call): all pairs, broadways, suited aces, A9o+, suited K9+, 54s+, suited 1-gappers 64s+.",
+                "Late pos: add weaker suited aces, more suited gappers, KTo+, QTo+; attack limpers.",
+                "Blinds: defend vs single raise with any ace, broadway, suited/connected; fold only true trash.",
+                "If many hands ended preflop, widen one notch now (add marginal suited/gapped).",
+                "Premiums raise; mediums mix call/raise; trash folds. Over-folding marginal+ = leak.",
+                "---"
+            ])
+        elif self.street.lower() == "flop":
+            lines.extend([
+                "Street Guidance (flop): classify hand: value (2pair+), medium (top/mid pair), draws (8+ outs), air.",
+                "Continue vs small pressure with top pair+, strong draws; semi-bluff nut draws/overcards+backdoor.",
+                "Avoid auto-folding weak backdoor+overcards vs tiny bets when pot odds good.",
+                "---"
+            ])
+        elif self.street.lower() == "turn":
+            lines.extend([
+                "Street Guidance (turn): value hands extract; strong draws with sufficient equity can barrel/semi-bluff.",
+                "Narrow bluffs; fold pure air facing aggression unless representing credible range.",
+                "---"
+            ])
+        elif self.street.lower() == "river":
+            lines.extend([
+                "Street Guidance (river): value bet thin vs missed draws; bluff only if blockers + opponent capped.",
+                "Calling threshold: beat enough of opponent's thin value / bluff range; avoid heroic calls with bottom.",
+                "---"
+            ])
+        lines.append("Behavior history of all attenders:")
+        for h in state.hand_log.history: lines.append(f"  {h}")
         # 动作域（强约束提示）
         def _fmt(a: LegalAction):
             if a.type == "raise":  # 首次进攻也用 raise 表达
@@ -73,25 +112,18 @@ class Observation:  # 直接存你喂给 LLM 的“状态快照”（便于复�
             return a.type
         acts = " | ".join(_fmt(a) for a in self.legal_actions)
         lines.append(f"Legal actions: {acts}")
-        # 输出规范
+        # 简洁动作含义
         lines.append(
-            "Reason explicitly in natural language.\n"
-            "Then output exactly ONE final line, in lowercase, starting at column 1, as:\n"
-            "decision: <action>\n\n"
-            "Rules:\n"
-            "- Do NOT include any other line that starts with \"decision:\" before the final line.\n"
-            "- <action> ∈ fold | check | call | raise [total] | all-in\n"
-            "- Treat ANY first aggression as 'raise' <total> (do not use 'bet')."
-            "- '<total>' indicates your total contribution in this round (including previous chips)."
-            "If you had not invested any chips before, 'raise 300' means your first bet of 300."
-            "- Use integer chip units (no symbols, no commas).\n"
-            "Important strategy note:\n"
-            "Do not always choose 'check'.\n"
-            "You should estimate your winning probability (equity) based on your hole cards and the board.\n"
-            "If your winning chance is high, increase aggression via raises.\n"
-            "If your winning chance is low, fold more often.\n"
-            "You can also consider bluffing: when the opponent's betting pattern suggests they may be weak, you may raise to apply pressure.\n"
+            "Action semantics (per street): fold = forfeit hand (lose invested); check (to_call=0) = pass without adding chips; call = pay exactly to_call; raise to T (to_call>0) = set your total this street to T; all-in = commit all remaining chips. to_call := max(0, table_max_contrib − your_contrib). If to_call=0, prefer checking over folding."
         )
+        lines.append(
+            "Raise rule: Any raise must be to an amount greater than or equal to the current highest bet (raise to >= current bet)."
+        )        
+        # 只在需要决策时加决策格式要求
+        if decision_required:
+            lines.append(
+                "Reason briefly, then MUST output ONE final line in the format: 'decision: <action>' (lowercase). Legal: fold|check|call|raise <total>|all-in. Use integer amounts only."
+            )
         return "\n".join(lines)
 @dataclass
 class ParsedDecision:
@@ -126,6 +158,7 @@ class HandLog:
     strategy_summaries: Dict[str, str] = field(default_factory=dict)  # 每手结束后的各玩家总结（启用者）
     summary_updates: List[str] = field(default_factory=list)          # 本手实际发生变化的玩家名列表
     steps: List[Any] = field(default_factory=list)  # 保存 StepTrace（避免循环依赖，使用 Any）
+    result_summary: dict = field(default_factory=dict)
 
     def __init__(self, hand_no: int, button_name: str, sb: int, bb: int, p_btn, p_bb, players: Optional[List[Any]] = None):
         self.hand_no = hand_no
@@ -181,7 +214,10 @@ class HandLog:
             "history": {s: [asdict(h) for h in self.history[s]] for s in STREETS},
             "strategy_summaries": self.strategy_summaries,
             "summary_updates": self.summary_updates,
-            "steps": [asdict(s) for s in self.steps],
+            "steps": [
+                asdict(s) if hasattr(s, "__dataclass_fields__") else s
+                for s in self.steps
+            ],
         }
 
     def to_json(self) -> str:
@@ -201,7 +237,6 @@ class StepTrace:
     street: str
     actor: str
     observation: Observation
-    prompt_hash: str
     prompt_text: Optional[str]
     model: str
     response_text: str
@@ -220,4 +255,5 @@ class StepTrace:
 ## 旧的游离函数已内联到 HandLog；保留占位避免外部误引用
 def build_llm_prompt_text(*args, **kwargs):
     raise NotImplementedError("build_llm_prompt_text 已弃用，使用 Observation.to_prompt_text()")
+
 
